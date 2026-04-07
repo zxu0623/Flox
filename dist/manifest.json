@@ -1,0 +1,61 @@
+{
+  "manifest_version": 3,
+  "default_locale": "en",
+  "name": "__MSG_appName__",
+  "version": "0.0.1",
+  "description": "__MSG_appDescription__",
+  "permissions": [
+    "tabs",
+    "storage",
+    "tabGroups",
+    "activeTab",
+    "contextMenus"
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "__MSG_appName__"
+  },
+  "commands": {
+    "stash_active_workspace": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+S",
+        "mac": "Command+Shift+S"
+      },
+      "description": "__MSG_commandStashWorkspace__"
+    },
+    "open_dashboard": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+D",
+        "mac": "Command+Shift+D"
+      },
+      "description": "__MSG_commandOpenDashboard__"
+    }
+  },
+  "content_scripts": [
+    {
+      "js": [
+        "assets/assign-prompt.tsx-loader-BmN6kW-m.js"
+      ],
+      "matches": [
+        "<all_urls>"
+      ],
+      "run_at": "document_idle"
+    }
+  ],
+  "background": {
+    "service_worker": "service-worker-loader.js",
+    "type": "module"
+  },
+  "web_accessible_resources": [
+    {
+      "matches": [
+        "<all_urls>"
+      ],
+      "resources": [
+        "assets/i18n-CWYdL-Tb.js",
+        "assets/assign-prompt.tsx-C0yHK22M.js"
+      ],
+      "use_dynamic_url": false
+    }
+  ]
+}
