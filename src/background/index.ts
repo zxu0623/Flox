@@ -24,9 +24,11 @@ const ASSIGN_NEW_MENU_ID = "flox-assign-new";
 const ASSIGN_WORKSPACE_PREFIX = "flox-assign-workspace:";
 const TAB_GROUPS_KEY = "flox.workspaceTabGroups";
 const IGNORED_DOMAINS_KEY = "flox.ignoredDomains";
+const TAB_SYNC_ALARM = "flox-tab-sync";
 const DEFAULT_IDLE_THRESHOLD_MINUTES = 120;
 const DEFAULT_TAB_WARNING_THRESHOLD = 20;
 const SETTINGS_KEY = "flox.settings";
+let contextMenuRefreshInFlight: Promise<void> | null = null;
 
 type WorkspaceGroupMap = Record<string, number>;
 type TabGroupColor = "grey" | "blue" | "red" | "yellow" | "green" | "pink" | "purple" | "cyan" | "orange";
@@ -180,7 +182,7 @@ async function syncBadgeFromRecords(): Promise<void> {
 }
 
 async function assignAndPersistTab(tab: chrome.tabs.Tab): Promise<void> {
-  if (typeof tab.id !== "number") {
+  if (typeof tab.id !== "number" || typeof tab.windowId !== "number") {
     return;
   }
   const workspaces = await getWorkspaces();
@@ -189,6 +191,7 @@ async function assignAndPersistTab(tab: chrome.tabs.Tab): Promise<void> {
   const now = Date.now();
   await updateTabRecord({
     tabId: tab.id,
+    windowId: tab.windowId,
     workspaceId: matched?.id ?? null,
     url: tab.url ?? existing?.url ?? "",
     title: tab.title ?? existing?.title ?? "",
@@ -217,34 +220,47 @@ async function assignAndPersistTab(tab: chrome.tabs.Tab): Promise<void> {
   await syncBadgeFromRecords();
 }
 
-async function scanAndSyncAllTabs(): Promise<void> {
+async function reconcileTabRecords(logPrefix?: string): Promise<TabRecord[]> {
   const tabs = await chrome.tabs.query({});
   const workspaces = await getWorkspaces();
+  const existingRecords = await getTabRecords();
+  const existingByTabId = new Map(existingRecords.map((record) => [record.tabId, record]));
   const records: TabRecord[] = [];
   for (const tab of tabs) {
-    if (typeof tab.id !== "number") {
+    if (typeof tab.id !== "number" || typeof tab.windowId !== "number") {
       continue;
     }
+    const existing = existingByTabId.get(tab.id);
     const matched = tab.url ? matchWorkspaceByUrl(tab.url, workspaces) : null;
     const now = Date.now();
     records.push({
       tabId: tab.id,
-      workspaceId: matched?.id ?? null,
-      url: tab.url ?? "",
-      title: tab.title ?? "",
-      favIconUrl: tab.favIconUrl ?? "",
+      windowId: tab.windowId,
+      workspaceId: existing?.workspaceId ?? matched?.id ?? null,
+      url: tab.url ?? existing?.url ?? "",
+      title: tab.title ?? existing?.title ?? "",
+      favIconUrl: tab.favIconUrl ?? existing?.favIconUrl ?? "",
       lastAccessed: tab.lastAccessed ?? now,
-      createdAt: now
+      createdAt: existing?.createdAt ?? now
     });
   }
   await setTabRecords(records);
+  if (logPrefix) {
+    console.log(`[${logPrefix}] synced tab records`, { liveTabs: tabs.length, tabRecords: records.length });
+  }
+  return records;
+}
+
+async function scanAndSyncAllTabs(): Promise<void> {
+  const records = await reconcileTabRecords();
+  const workspaces = await getWorkspaces();
+  const settings = await getRuntimeSettings();
   for (const record of records) {
     if (!record.workspaceId) {
       continue;
     }
     const workspace = workspaces.find((item) => item.id === record.workspaceId);
     const tab = await chrome.tabs.get(record.tabId).catch(() => null);
-    const settings = await getRuntimeSettings();
     if (workspace && tab && settings.autoCreateTabGroup) {
       await ensureTabInWorkspaceGroup(tab, workspace);
     }
@@ -328,7 +344,11 @@ async function buildSnapshot() {
 
 async function stashWorkspaceTabs(workspaceId: string): Promise<void> {
   const records = await getTabRecords();
-  const tabIds = records.filter((item) => item.workspaceId === workspaceId).map((item) => item.tabId);
+  const workspaceTabIdSet = new Set(records.filter((item) => item.workspaceId === workspaceId).map((item) => item.tabId));
+  const openTabs = await chrome.tabs.query({});
+  const tabIds = openTabs
+    .map((tab) => tab.id)
+    .filter((id): id is number => typeof id === "number" && workspaceTabIdSet.has(id));
   await saveTabs(workspaceId);
   if (tabIds.length > 0) {
     await chrome.tabs.remove(tabIds);
@@ -337,10 +357,21 @@ async function stashWorkspaceTabs(workspaceId: string): Promise<void> {
 }
 
 async function closeWorkspaceTabs(workspaceId: string): Promise<void> {
-  const tabIds = (await getTabRecords()).filter((item) => item.workspaceId === workspaceId).map((item) => item.tabId);
+  const records = await getTabRecords();
+  const workspaceTabIdSet = new Set(records.filter((item) => item.workspaceId === workspaceId).map((item) => item.tabId));
+  const openTabs = await chrome.tabs.query({});
+  const tabIds = openTabs
+    .map((tab) => tab.id)
+    .filter((id): id is number => typeof id === "number" && workspaceTabIdSet.has(id));
   if (tabIds.length > 0) {
     await chrome.tabs.remove(tabIds);
   }
+  const next = (await getTabRecords()).filter((record) => !workspaceTabIdSet.has(record.tabId));
+  await setTabRecords(next);
+}
+
+async function closeSingleTab(tabId: number): Promise<void> {
+  await chrome.tabs.remove(tabId);
 }
 
 async function moveTabToWorkspace(tabId: number, workspaceId: string | null): Promise<void> {
@@ -352,6 +383,7 @@ async function moveTabToWorkspace(tabId: number, workspaceId: string | null): Pr
   const current = records.find((item) => item.tabId === tabId);
   await updateTabRecord({
     tabId,
+    windowId: typeof tab.windowId === "number" ? tab.windowId : current?.windowId ?? -1,
     workspaceId,
     url: tab.url ?? current?.url ?? "",
     title: tab.title ?? current?.title ?? "",
@@ -378,6 +410,7 @@ async function restoreSingleSavedTab(workspaceId: string, url: string): Promise<
   if (typeof opened.id === "number") {
     await updateTabRecord({
       tabId: opened.id,
+      windowId: typeof opened.windowId === "number" ? opened.windowId : -1,
       workspaceId,
       url: target.url,
       title: target.title,
@@ -406,35 +439,71 @@ async function reorderWorkspaces(workspaceIds: string[]): Promise<void> {
   }
 }
 
+async function debugDump(): Promise<void> {
+  const [tabs, records] = await Promise.all([chrome.tabs.query({}), getTabRecords()]);
+  const liveIds = new Set(tabs.map((tab) => tab.id).filter((id): id is number => typeof id === "number"));
+  const recordIds = new Set(records.map((record) => record.tabId));
+  const missingInRecords = tabs
+    .filter((tab): tab is chrome.tabs.Tab & { id: number; windowId: number } => typeof tab.id === "number" && typeof tab.windowId === "number")
+    .filter((tab) => !recordIds.has(tab.id))
+    .map((tab) => ({ tabId: tab.id, windowId: tab.windowId, url: tab.url ?? "", title: tab.title ?? "" }));
+  const staleRecords = records.filter((record) => !liveIds.has(record.tabId));
+  console.log("[flox debug] all tabs", tabs.map((tab) => ({ id: tab.id, windowId: tab.windowId, url: tab.url, title: tab.title })));
+  console.log("[flox debug] all tab records", records);
+  console.log("[flox debug] in browser but missing in TabRecord", missingInRecords);
+  console.log("[flox debug] stale TabRecord entries", staleRecords);
+}
+
 async function refreshContextMenuTitle(): Promise<void> {
+  if (contextMenuRefreshInFlight) {
+    await contextMenuRefreshInFlight;
+    return;
+  }
+
+  contextMenuRefreshInFlight = (async () => {
   const language = await getStoredLanguage();
   const title = t("contextMenuOpenDashboard", undefined, language);
   const assignRoot = t("contextMenuAssignTo", undefined, language);
   const assignNew = t("contextMenuAssignNewTask", undefined, language);
   const workspaces = (await getWorkspaces()).sort((a, b) => a.order - b.order);
 
-  await chrome.contextMenus.removeAll();
+  await chrome.contextMenus.removeAll().catch(() => undefined);
 
-  chrome.contextMenus.create({ id: DASHBOARD_MENU_ID, title, contexts: ["action"] });
-  chrome.contextMenus.create({ id: ASSIGN_ROOT_MENU_ID, title: assignRoot, contexts: ["page"] });
+  const createSafe = (options: chrome.contextMenus.CreateProperties) => {
+    chrome.contextMenus.create(options, () => {
+      if (chrome.runtime.lastError) {
+        chrome.contextMenus.update(String(options.id), options, () => undefined);
+      }
+    });
+  };
+
+  createSafe({ id: DASHBOARD_MENU_ID, title, contexts: ["action"] });
+  createSafe({ id: ASSIGN_ROOT_MENU_ID, title: assignRoot, contexts: ["page"] });
   for (const workspace of workspaces) {
-    chrome.contextMenus.create({
+    createSafe({
       id: `${ASSIGN_WORKSPACE_PREFIX}${workspace.id}`,
       parentId: ASSIGN_ROOT_MENU_ID,
       title: workspace.name,
       contexts: ["page"]
     });
   }
-  chrome.contextMenus.create({
+  createSafe({
     id: ASSIGN_NEW_MENU_ID,
     parentId: ASSIGN_ROOT_MENU_ID,
     title: assignNew,
     contexts: ["page"]
   });
+  })()
+    .finally(() => {
+      contextMenuRefreshInFlight = null;
+    });
+
+  await contextMenuRefreshInFlight;
 }
 
 chrome.runtime.onInstalled.addListener(async (details) => {
   await refreshContextMenuTitle();
+  await chrome.alarms.create(TAB_SYNC_ALARM, { periodInMinutes: 0.5 });
   if (details.reason === "install") {
     await chrome.storage.local.set({
       [ONBOARDING_PENDING_KEY]: true,
@@ -447,6 +516,7 @@ chrome.runtime.onInstalled.addListener(async (details) => {
 
 chrome.runtime.onStartup.addListener(() => {
   safeRun(async () => {
+    await chrome.alarms.create(TAB_SYNC_ALARM, { periodInMinutes: 0.5 });
     await refreshContextMenuTitle();
     await scanAndSyncAllTabs();
   });
@@ -490,7 +560,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
           break;
         case "popup:closeTab":
         case "dashboard:closeTab":
-          await chrome.tabs.remove(message.tabId);
+          await closeSingleTab(message.tabId);
           sendResponse({ ok: true });
           break;
         case "popup:addWorkspace":
@@ -545,6 +615,10 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
           await scanAndSyncAllTabs();
           sendResponse({ ok: true });
           break;
+        case "debug-dump":
+          await debugDump();
+          sendResponse({ ok: true });
+          break;
         default:
           sendResponse({ ok: false });
       }
@@ -590,6 +664,7 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
 
 chrome.tabs.onCreated.addListener((tab) => {
   safeRun(async () => {
+    console.log("[flox tabs.onCreated]", { tabId: tab.id, windowId: tab.windowId });
     await assignAndPersistTab(tab);
   });
 });
@@ -597,6 +672,7 @@ chrome.tabs.onCreated.addListener((tab) => {
 chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
   if (changeInfo.status === "complete") {
     safeRun(async () => {
+      console.log("[flox tabs.onUpdated complete]", { tabId, windowId: tab.windowId });
       await assignAndPersistTab({ ...tab, id: tabId });
     });
   }
@@ -618,6 +694,7 @@ chrome.tabs.onActivated.addListener((activeInfo) => {
     const current = (await getTabRecords()).find((record) => record.tabId === tab.id);
     await updateTabRecord({
       tabId: tab.id,
+      windowId: typeof tab.windowId === "number" ? tab.windowId : current?.windowId ?? -1,
       workspaceId: current?.workspaceId ?? null,
       url: tab.url ?? current?.url ?? "",
       title: tab.title ?? current?.title ?? "",
@@ -632,6 +709,25 @@ chrome.tabs.onActivated.addListener((activeInfo) => {
 chrome.tabGroups.onRemoved.addListener((group) => {
   safeRun(async () => {
     await removeGroupKeyById(group.id);
+  });
+});
+
+chrome.windows.onCreated.addListener((window) => {
+  safeRun(async () => {
+    if (typeof window.id === "number") {
+      console.log("[flox windows.onCreated]", { windowId: window.id });
+    }
+    await scanAndSyncAllTabs();
+  });
+});
+
+chrome.alarms.onAlarm.addListener((alarm) => {
+  if (alarm.name !== TAB_SYNC_ALARM) {
+    return;
+  }
+  safeRun(async () => {
+    await reconcileTabRecords("alarm");
+    await syncBadgeFromRecords();
   });
 });
 

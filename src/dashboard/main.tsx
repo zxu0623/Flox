@@ -132,12 +132,14 @@ function TabCard({
   tab,
   language,
   onClose,
-  onMove
+  onMove,
+  isClosing
 }: {
   tab: TabItem;
   language: LanguageCode;
   onClose: (tabId: number) => void;
   onMove: (tabId: number) => void;
+  isClosing: boolean;
 }) {
   const { attributes, listeners, setNodeRef, transform } = useDraggable({ id: `tab:${tab.tabId}`, data: { tabId: tab.tabId } });
   const style = { transform: CSS.Translate.toString(transform) };
@@ -148,7 +150,9 @@ function TabCard({
       style={style}
       {...listeners}
       {...attributes}
-      className="group rounded-lg border border-slate-800 bg-slate-900 p-3 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg hover:shadow-slate-950/40"
+      className={`group rounded-lg border border-slate-800 bg-slate-900 p-3 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg hover:shadow-slate-950/40 ${
+        isClosing ? "translate-y-1 opacity-0" : "opacity-100"
+      }`}
     >
       <div className="flex items-start gap-2">
         <img src={tab.favIconUrl || "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw=="} alt="" className="h-4 w-4 rounded-sm" />
@@ -158,10 +162,24 @@ function TabCard({
           <p className="mt-1 text-[11px] text-slate-500">{formatAgo(tab.lastAccessed, language)}</p>
         </div>
         <div className="hidden flex-col gap-1 group-hover:flex">
-          <button type="button" onClick={() => onMove(tab.tabId)} className="text-xs text-indigo-300">
+          <button
+            type="button"
+            onClick={(event) => {
+              event.stopPropagation();
+              onMove(tab.tabId);
+            }}
+            className="text-xs text-indigo-300"
+          >
             {t("dashboardMoveTo", undefined, language)}
           </button>
-          <button type="button" onClick={() => onClose(tab.tabId)} className="text-xs text-rose-300">
+          <button
+            type="button"
+            onClick={(event) => {
+              event.stopPropagation();
+              onClose(tab.tabId);
+            }}
+            className="text-xs text-rose-300"
+          >
             {t("popupClose", undefined, language)}
           </button>
         </div>
@@ -185,6 +203,7 @@ function DashboardApp() {
   const [expandedStashed, setExpandedStashed] = React.useState<string[]>([]);
   const [draggingWorkspaceId, setDraggingWorkspaceId] = React.useState<string | null>(null);
   const [loadingKey, setLoadingKey] = React.useState<string | null>(null);
+  const [closingTabIds, setClosingTabIds] = React.useState<Set<number>>(new Set());
   const [showOnboarding, setShowOnboarding] = React.useState(false);
   const [onboardingStep, setOnboardingStep] = React.useState(1);
   const [onboardingTemplates, setOnboardingTemplates] = React.useState<string[]>([]);
@@ -249,6 +268,33 @@ function DashboardApp() {
   };
 
   const selectedWorkspace = data.workspaces.find((item) => item.id === activeWorkspaceId) ?? null;
+
+  const handleCloseSingleTab = async (tabId: number) => {
+    setClosingTabIds((current) => new Set(current).add(tabId));
+    setData((current) => {
+      const strip = (tabs: TabItem[]) => tabs.filter((tab) => tab.tabId !== tabId);
+      return {
+        ...current,
+        totalTabs: Math.max(0, current.totalTabs - 1),
+        unassignedTabs: strip(current.unassignedTabs),
+        workspaces: current.workspaces.map((workspace) => {
+          const tabs = strip(workspace.tabs);
+          return { ...workspace, tabs, tabCount: tabs.length };
+        })
+      };
+    });
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    try {
+      await sendMessage({ type: "dashboard:closeTab", tabId });
+      await loadData();
+    } finally {
+      setClosingTabIds((current) => {
+        const next = new Set(current);
+        next.delete(tabId);
+        return next;
+      });
+    }
+  };
 
   const handleDragEnd = async (event: { active: { id: string }; over: { id: string } | null }) => {
     if (!event.over) {
@@ -545,7 +591,7 @@ function DashboardApp() {
                       <TabCard
                         tab={rows[index]}
                         language={language}
-                        onClose={(id) => void sendMessage({ type: "dashboard:closeTab", tabId: id }).then(loadData)}
+                        onClose={(id) => void handleCloseSingleTab(id)}
                         onMove={(id) => {
                           const target = window.prompt(t("dashboardMoveTo", undefined, language));
                           const workspace = data.workspaces.find((item) => t(item.name, undefined, language) === target || item.id === target);
@@ -553,6 +599,7 @@ function DashboardApp() {
                             void sendMessage({ type: "dashboard:assignTab", tabId: id, workspaceId: workspace.id }).then(loadData);
                           }
                         }}
+                        isClosing={closingTabIds.has(rows[index].tabId)}
                       />
                     </div>
                   )}
@@ -569,7 +616,7 @@ function DashboardApp() {
                       key={tab.tabId}
                       tab={tab}
                       language={language}
-                      onClose={(id) => void sendMessage({ type: "dashboard:closeTab", tabId: id }).then(loadData)}
+                      onClose={(id) => void handleCloseSingleTab(id)}
                       onMove={(id) => {
                         const target = window.prompt(t("dashboardMoveTo", undefined, language));
                         const workspace = data.workspaces.find((item) => t(item.name, undefined, language) === target || item.id === target);
@@ -577,6 +624,7 @@ function DashboardApp() {
                           void sendMessage({ type: "dashboard:assignTab", tabId: id, workspaceId: workspace.id }).then(loadData);
                         }
                       }}
+                      isClosing={closingTabIds.has(tab.tabId)}
                     />
                   ))}
                 </div>

@@ -95,11 +95,13 @@ async function sendMessage<TResponse = unknown>(message: unknown): Promise<TResp
 function TabList({
   tabs,
   language,
-  onClose
+  onClose,
+  closingTabIds
 }: {
   tabs: PopupTabItem[];
   language: LanguageCode;
   onClose: (tabId: number) => Promise<void>;
+  closingTabIds: Set<number>;
 }) {
   if (tabs.length === 0) {
     return <p className="mt-2 text-xs text-slate-500">{t("popupNoTabs", undefined, language)}</p>;
@@ -108,7 +110,12 @@ function TabList({
   const renderRow = ({ index, style }: ListChildComponentProps) => {
     const tab = tabs[index];
     return (
-      <div style={style} className="flex items-center gap-2 border-b border-slate-800 px-2 py-1">
+      <div
+        style={style}
+        className={`flex items-center gap-2 border-b border-slate-800 px-2 py-1 transition-all duration-150 ${
+          closingTabIds.has(tab.tabId) ? "translate-y-1 opacity-0" : "opacity-100"
+        }`}
+      >
         <img src={tab.favIconUrl || "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw=="} alt="" className="h-4 w-4 rounded-sm" />
         <div className="min-w-0 flex-1">
           <p className="truncate text-xs text-slate-200">{tab.title || t("popupUnknownTitle", undefined, language)}</p>
@@ -116,7 +123,10 @@ function TabList({
         </div>
         <button
           type="button"
-          onClick={() => void onClose(tab.tabId)}
+          onClick={(event) => {
+            event.stopPropagation();
+            void onClose(tab.tabId);
+          }}
           className="rounded border border-slate-700 px-1.5 py-0.5 text-[10px] text-slate-300 hover:bg-slate-800"
         >
           {t("popupClose", undefined, language)}
@@ -142,7 +152,12 @@ function TabList({
   return (
     <div className="mt-2 max-h-[180px] overflow-y-auto rounded border border-slate-800">
       {tabs.map((tab) => (
-        <div key={tab.tabId} className="flex items-center gap-2 border-b border-slate-800 px-2 py-1 last:border-b-0">
+        <div
+          key={tab.tabId}
+          className={`flex items-center gap-2 border-b border-slate-800 px-2 py-1 transition-all duration-150 last:border-b-0 ${
+            closingTabIds.has(tab.tabId) ? "translate-y-1 opacity-0" : "opacity-100"
+          }`}
+        >
           <img src={tab.favIconUrl || "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw=="} alt="" className="h-4 w-4 rounded-sm" />
           <div className="min-w-0 flex-1">
             <p className="truncate text-xs text-slate-200">{tab.title || t("popupUnknownTitle", undefined, language)}</p>
@@ -150,7 +165,10 @@ function TabList({
           </div>
           <button
             type="button"
-            onClick={() => void onClose(tab.tabId)}
+            onClick={(event) => {
+              event.stopPropagation();
+              void onClose(tab.tabId);
+            }}
             className="rounded border border-slate-700 px-1.5 py-0.5 text-[10px] text-slate-300 hover:bg-slate-800"
           >
             {t("popupClose", undefined, language)}
@@ -176,6 +194,8 @@ function PopupApp() {
   const [workspacePatterns, setWorkspacePatterns] = React.useState<string[]>([]);
   const [patternInput, setPatternInput] = React.useState("");
   const [loadingKey, setLoadingKey] = React.useState<string | null>(null);
+  const [closingTabIds, setClosingTabIds] = React.useState<Set<number>>(new Set());
+  const [debugButtonVisible, setDebugButtonVisible] = React.useState(false);
 
   React.useEffect(() => {
     void getStoredLanguage().then(setLanguage);
@@ -218,10 +238,36 @@ function PopupApp() {
   };
 
   const handleCloseTab = async (tabId: number) => {
+    setClosingTabIds((current) => new Set(current).add(tabId));
     setLoadingKey(`tab-${tabId}`);
-    await sendMessage({ type: "popup:closeTab", tabId });
-    await refreshSnapshot();
-    setLoadingKey(null);
+    setSnapshot((current) => {
+      const remove = (tabs: PopupTabItem[]) => tabs.filter((tab) => tab.tabId !== tabId);
+      return {
+        totalTabs: Math.max(0, current.totalTabs - 1),
+        idleTabs: remove(current.idleTabs),
+        unassignedTabs: remove(current.unassignedTabs),
+        workspaces: current.workspaces.map((workspace) => {
+          const tabs = remove(workspace.tabs);
+          return {
+            ...workspace,
+            tabs,
+            tabCount: tabs.length
+          };
+        })
+      };
+    });
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    try {
+      await sendMessage({ type: "popup:closeTab", tabId });
+      await refreshSnapshot();
+    } finally {
+      setLoadingKey(null);
+      setClosingTabIds((current) => {
+        const next = new Set(current);
+        next.delete(tabId);
+        return next;
+      });
+    }
   };
 
   const handleCloseIdleAll = async () => {
@@ -354,11 +400,21 @@ function PopupApp() {
 
   const maxWorkspaceTabs = Math.max(1, ...snapshot.workspaces.map((workspace) => workspace.tabCount));
 
+  const runDebugDump = async () => {
+    await sendMessage({ type: "debug-dump" });
+    await chrome.tabs.create({ url: `chrome://extensions/?id=${chrome.runtime.id}` });
+  };
+
   return (
     <main className="h-[500px] w-[380px] overflow-y-auto bg-slate-950 p-3 text-slate-100">
       <header className="sticky top-0 z-10 rounded-md bg-slate-950/95 pb-2 backdrop-blur">
         <div className="flex items-center justify-between">
-          <h1 className="text-xl font-semibold">{t("appName", undefined, language)}</h1>
+          <h1
+            className="cursor-default text-xl font-semibold"
+            onDoubleClick={() => setDebugButtonVisible((value) => !value)}
+          >
+            {t("appName", undefined, language)}
+          </h1>
           <button
             type="button"
             onClick={openDashboard}
@@ -368,6 +424,17 @@ function PopupApp() {
             {t("popupOpenDashboard", undefined, language)}
           </button>
         </div>
+        {debugButtonVisible ? (
+          <div className="mt-1 flex justify-end">
+            <button
+              type="button"
+              onClick={() => void runDebugDump()}
+              className="rounded border border-amber-500/40 px-1.5 py-0.5 text-[10px] text-amber-300 hover:bg-amber-500/10"
+            >
+              debug
+            </button>
+          </div>
+        ) : null}
         <p className="mt-1 text-xs text-slate-400">{t("popupTotalTabs", [String(snapshot.totalTabs)], language)}</p>
       </header>
 
@@ -391,7 +458,7 @@ function PopupApp() {
                   {t("popupCloseAll", undefined, language)}
                 </button>
               </div>
-              <TabList tabs={snapshot.idleTabs} language={language} onClose={handleCloseTab} />
+              <TabList tabs={snapshot.idleTabs} language={language} onClose={handleCloseTab} closingTabIds={closingTabIds} />
             </div>
         </section>
       ) : null}
@@ -457,7 +524,7 @@ function PopupApp() {
                 </button>
               </div>
               <div className={`overflow-hidden transition-all duration-200 ${expanded ? "max-h-80 opacity-100" : "max-h-0 opacity-0"}`}>
-                <TabList tabs={workspace.tabs} language={language} onClose={handleCloseTab} />
+                    <TabList tabs={workspace.tabs} language={language} onClose={handleCloseTab} closingTabIds={closingTabIds} />
               </div>
             </div>
           );
@@ -474,7 +541,7 @@ function PopupApp() {
           <span className="text-slate-400">{snapshot.unassignedTabs.length}</span>
         </button>
         <div className={`overflow-hidden transition-all duration-200 ${expandedUnassigned ? "max-h-80 opacity-100" : "max-h-0 opacity-0"}`}>
-          <TabList tabs={snapshot.unassignedTabs} language={language} onClose={handleCloseTab} />
+          <TabList tabs={snapshot.unassignedTabs} language={language} onClose={handleCloseTab} closingTabIds={closingTabIds} />
         </div>
         <div className="mt-2 flex items-center justify-between">
           <button

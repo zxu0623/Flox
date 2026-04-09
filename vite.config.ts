@@ -9,7 +9,7 @@ const manifest = defineManifest({
   name: "__MSG_appName__",
   version: "0.0.1",
   description: "__MSG_appDescription__",
-  permissions: ["tabs", "storage", "tabGroups", "activeTab", "contextMenus"],
+  permissions: ["tabs", "storage", "tabGroups", "activeTab", "contextMenus", "alarms"],
   action: {
     default_popup: "popup.html",
     default_title: "__MSG_appName__"
