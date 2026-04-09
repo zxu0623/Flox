@@ -5,9 +5,7 @@ import { arrayMove, SortableContext, useSortable, verticalListSortingStrategy } 
 import { CSS } from "@dnd-kit/utilities";
 import { FixedSizeList } from "react-window";
 import "../styles.css";
-import { UpgradePrompt } from "../components/UpgradePrompt";
 import { getStoredLanguage, setStoredLanguage, type LanguageCode, t } from "../utils/i18n";
-import { checkFeature } from "../utils/plan";
 import { workspaceTemplates } from "../utils/templates";
 
 type ViewKey = "overview" | "unassigned" | "stashed" | "stats" | "workspace" | "settings";
@@ -132,12 +130,14 @@ function TabCard({
   tab,
   language,
   onClose,
-  onMove
+  onMove,
+  isClosing
 }: {
   tab: TabItem;
   language: LanguageCode;
   onClose: (tabId: number) => void;
   onMove: (tabId: number) => void;
+  isClosing: boolean;
 }) {
   const { attributes, listeners, setNodeRef, transform } = useDraggable({ id: `tab:${tab.tabId}`, data: { tabId: tab.tabId } });
   const style = { transform: CSS.Translate.toString(transform) };
@@ -148,7 +148,9 @@ function TabCard({
       style={style}
       {...listeners}
       {...attributes}
-      className="group rounded-lg border border-slate-800 bg-slate-900 p-3 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg hover:shadow-slate-950/40"
+      className={`group rounded-lg border border-slate-800 bg-slate-900 p-3 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg hover:shadow-slate-950/40 ${
+        isClosing ? "translate-y-1 opacity-0" : "opacity-100"
+      }`}
     >
       <div className="flex items-start gap-2">
         <img src={tab.favIconUrl || "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw=="} alt="" className="h-4 w-4 rounded-sm" />
@@ -158,10 +160,24 @@ function TabCard({
           <p className="mt-1 text-[11px] text-slate-500">{formatAgo(tab.lastAccessed, language)}</p>
         </div>
         <div className="hidden flex-col gap-1 group-hover:flex">
-          <button type="button" onClick={() => onMove(tab.tabId)} className="text-xs text-indigo-300">
+          <button
+            type="button"
+            onClick={(event) => {
+              event.stopPropagation();
+              onMove(tab.tabId);
+            }}
+            className="text-xs text-indigo-300"
+          >
             {t("dashboardMoveTo", undefined, language)}
           </button>
-          <button type="button" onClick={() => onClose(tab.tabId)} className="text-xs text-rose-300">
+          <button
+            type="button"
+            onClick={(event) => {
+              event.stopPropagation();
+              onClose(tab.tabId);
+            }}
+            className="text-xs text-rose-300"
+          >
             {t("popupClose", undefined, language)}
           </button>
         </div>
@@ -180,11 +196,10 @@ function DashboardApp() {
   const [data, setData] = React.useState<DashboardSnapshot>(DEFAULT_DATA);
   const [view, setView] = React.useState<ViewKey>("overview");
   const [activeWorkspaceId, setActiveWorkspaceId] = React.useState<string | null>(null);
-  const [showProModal, setShowProModal] = React.useState(false);
-  const [statsEnabled, setStatsEnabled] = React.useState(false);
   const [expandedStashed, setExpandedStashed] = React.useState<string[]>([]);
   const [draggingWorkspaceId, setDraggingWorkspaceId] = React.useState<string | null>(null);
   const [loadingKey, setLoadingKey] = React.useState<string | null>(null);
+  const [closingTabIds, setClosingTabIds] = React.useState<Set<number>>(new Set());
   const [showOnboarding, setShowOnboarding] = React.useState(false);
   const [onboardingStep, setOnboardingStep] = React.useState(1);
   const [onboardingTemplates, setOnboardingTemplates] = React.useState<string[]>([]);
@@ -206,7 +221,6 @@ function DashboardApp() {
     void (async () => {
       const lang = await getStoredLanguage();
       setLanguage(lang);
-      setStatsEnabled(await checkFeature("statistics"));
       const storageValues = await chrome.storage.local.get(["flox.settings", "flox.onboardingCompleted"]);
       const savedSettings = storageValues["flox.settings"] as Partial<typeof settings> | undefined;
       if (savedSettings) {
@@ -249,6 +263,33 @@ function DashboardApp() {
   };
 
   const selectedWorkspace = data.workspaces.find((item) => item.id === activeWorkspaceId) ?? null;
+
+  const handleCloseSingleTab = async (tabId: number) => {
+    setClosingTabIds((current) => new Set(current).add(tabId));
+    setData((current) => {
+      const strip = (tabs: TabItem[]) => tabs.filter((tab) => tab.tabId !== tabId);
+      return {
+        ...current,
+        totalTabs: Math.max(0, current.totalTabs - 1),
+        unassignedTabs: strip(current.unassignedTabs),
+        workspaces: current.workspaces.map((workspace) => {
+          const tabs = strip(workspace.tabs);
+          return { ...workspace, tabs, tabCount: tabs.length };
+        })
+      };
+    });
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    try {
+      await sendMessage({ type: "dashboard:closeTab", tabId });
+      await loadData();
+    } finally {
+      setClosingTabIds((current) => {
+        const next = new Set(current);
+        next.delete(tabId);
+        return next;
+      });
+    }
+  };
 
   const handleDragEnd = async (event: { active: { id: string }; over: { id: string } | null }) => {
     if (!event.over) {
@@ -406,7 +447,6 @@ function DashboardApp() {
             <button type="button" onClick={() => setView("overview")} className={`w-full rounded px-2 py-1 text-left ${view === "overview" ? "bg-slate-700" : "hover:bg-slate-800"}`}>{t("dashboardNavOverview", undefined, language)}</button>
             <button type="button" onClick={() => setView("unassigned")} className={`w-full rounded px-2 py-1 text-left ${view === "unassigned" ? "bg-slate-700" : "hover:bg-slate-800"}`}>{t("dashboardNavUnassigned", undefined, language)}</button>
             <button type="button" onClick={() => setView("stashed")} className={`w-full rounded px-2 py-1 text-left ${view === "stashed" ? "bg-slate-700" : "hover:bg-slate-800"}`}>{t("dashboardNavStashed", undefined, language)}</button>
-            <button type="button" onClick={() => setView("stats")} className={`w-full rounded px-2 py-1 text-left ${view === "stats" ? "bg-slate-700" : "hover:bg-slate-800"}`}>{t("dashboardNavStats", undefined, language)}</button>
             <button type="button" onClick={() => setView("settings")} className={`w-full rounded px-2 py-1 text-left ${view === "settings" ? "bg-slate-700" : "hover:bg-slate-800"}`}>⚙️ {t("settingsTitle", undefined, language)}</button>
           </div>
 
@@ -432,14 +472,6 @@ function DashboardApp() {
             </SortableContext>
           </div>
 
-          <button
-            type="button"
-            onClick={() => setShowProModal(true)}
-            className="tooltip-trigger mt-3 rounded bg-gradient-to-r from-violet-600 to-indigo-500 px-3 py-2 text-sm"
-            data-tooltip={t("tooltipLearnPro", undefined, language)}
-          >
-            ✨ {t("dashboardUpgradePro", undefined, language)}
-          </button>
           <div className="mt-2">
             <label className="text-xs text-slate-400">{t("languageLabel", undefined, language)}</label>
             <select value={language} onChange={handleLanguageChange} className="mt-1 w-full rounded border border-slate-700 bg-slate-950 px-2 py-1 text-xs">
@@ -545,7 +577,7 @@ function DashboardApp() {
                       <TabCard
                         tab={rows[index]}
                         language={language}
-                        onClose={(id) => void sendMessage({ type: "dashboard:closeTab", tabId: id }).then(loadData)}
+                        onClose={(id) => void handleCloseSingleTab(id)}
                         onMove={(id) => {
                           const target = window.prompt(t("dashboardMoveTo", undefined, language));
                           const workspace = data.workspaces.find((item) => t(item.name, undefined, language) === target || item.id === target);
@@ -553,6 +585,7 @@ function DashboardApp() {
                             void sendMessage({ type: "dashboard:assignTab", tabId: id, workspaceId: workspace.id }).then(loadData);
                           }
                         }}
+                        isClosing={closingTabIds.has(rows[index].tabId)}
                       />
                     </div>
                   )}
@@ -569,7 +602,7 @@ function DashboardApp() {
                       key={tab.tabId}
                       tab={tab}
                       language={language}
-                      onClose={(id) => void sendMessage({ type: "dashboard:closeTab", tabId: id }).then(loadData)}
+                      onClose={(id) => void handleCloseSingleTab(id)}
                       onMove={(id) => {
                         const target = window.prompt(t("dashboardMoveTo", undefined, language));
                         const workspace = data.workspaces.find((item) => t(item.name, undefined, language) === target || item.id === target);
@@ -577,6 +610,7 @@ function DashboardApp() {
                           void sendMessage({ type: "dashboard:assignTab", tabId: id, workspaceId: workspace.id }).then(loadData);
                         }
                       }}
+                      isClosing={closingTabIds.has(tab.tabId)}
                     />
                   ))}
                 </div>
@@ -677,7 +711,7 @@ function DashboardApp() {
           {view === "stats" ? (
             <div className="relative">
               <h2 className="text-2xl font-semibold">{t("dashboardNavStats", undefined, language)}</h2>
-              <div className={`mt-4 rounded border border-slate-800 bg-slate-900/60 p-4 ${statsEnabled ? "" : "blur-[2px]"}`}>
+              <div className="mt-4 rounded border border-slate-800 bg-slate-900/60 p-4">
                 <div className="h-44 rounded border border-slate-800 p-2">
                   <div className="flex h-full items-end gap-2">
                     {data.weekly.map((day) => {
@@ -701,11 +735,6 @@ function DashboardApp() {
                   ))}
                 </div>
               </div>
-              {statsEnabled ? null : (
-                <div className="absolute inset-0 flex items-center justify-center rounded-lg bg-slate-950/65 backdrop-blur-sm">
-                  <UpgradePrompt feature="statistics" language={language} />
-                </div>
-              )}
             </div>
           ) : null}
 
@@ -831,14 +860,6 @@ function DashboardApp() {
             </div>
           ) : null}
         </section>
-
-        {showProModal ? (
-          <div className="fixed inset-0 z-20 flex items-center justify-center bg-black/50" onClick={() => setShowProModal(false)}>
-            <div className="rounded-lg border border-slate-700 bg-slate-900 px-5 py-4" onClick={(event) => event.stopPropagation()}>
-              <UpgradePrompt feature="unlimitedWorkspaces" language={language} onClose={() => setShowProModal(false)} />
-            </div>
-          </div>
-        ) : null}
 
         <DragOverlay>{draggingWorkspaceId ? <div className="rounded bg-slate-700 px-2 py-1 text-xs">{draggingWorkspaceId}</div> : null}</DragOverlay>
         {showOnboarding ? (

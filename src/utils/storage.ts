@@ -12,6 +12,7 @@ export interface Workspace {
 
 export interface TabRecord {
   tabId: number;
+  windowId: number;
   workspaceId: string | null;
   url: string;
   title: string;
@@ -226,12 +227,20 @@ export async function removeTabRecord(tabId: number): Promise<void> {
 export async function saveTabs(workspaceId: string): Promise<SavedTab[]> {
   const records = await getTabRecords();
   const workspaceRecords = records.filter((record) => record.workspaceId === workspaceId);
+  const workspaceRecordByTabId = new Map(workspaceRecords.map((record) => [record.tabId, record]));
+  const openTabs = await chrome.tabs.query({});
 
-  const savedTabs: SavedTab[] = workspaceRecords.map((record) => ({
-    url: record.url,
-    title: record.title,
-    favIconUrl: record.favIconUrl
-  }));
+  const savedTabs: SavedTab[] = openTabs
+    .filter((tab): tab is chrome.tabs.Tab & { id: number } => typeof tab.id === "number")
+    .filter((tab) => workspaceRecordByTabId.has(tab.id))
+    .map((tab) => {
+      const record = workspaceRecordByTabId.get(tab.id);
+      return {
+        url: tab.url ?? record?.url ?? "",
+        title: tab.title ?? record?.title ?? "",
+        favIconUrl: tab.favIconUrl ?? record?.favIconUrl ?? ""
+      };
+    });
 
   const savedSessions = await storageGet<SavedSessions>(STORAGE_KEYS.savedSessions, {});
   savedSessions[workspaceId] = {
@@ -281,6 +290,7 @@ export async function restoreTabs(workspaceId: string): Promise<chrome.tabs.Tab[
     if (typeof opened.id === "number") {
       records.push({
         tabId: opened.id,
+        windowId: typeof opened.windowId === "number" ? opened.windowId : -1,
         workspaceId,
         url: saved.url,
         title: saved.title,
