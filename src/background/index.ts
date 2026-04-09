@@ -67,14 +67,19 @@ function sleep(ms: number): Promise<void> {
 
 async function notifyAssignPrompt(
   tabId: number,
-  payload: { domain: string; workspaces: Array<{ id: string; name: string; color: string }> }
+  payload: {
+    domain: string;
+    workspaces: Array<{ id: string; name: string; color: string }>;
+    suggestedWorkspaceId?: string;
+  }
 ): Promise<void> {
   for (let attempt = 0; attempt < 4; attempt += 1) {
     const ok = await chrome.tabs
       .sendMessage(tabId, {
         type: "flox:showAssignPrompt",
         domain: payload.domain,
-        workspaces: payload.workspaces
+        workspaces: payload.workspaces,
+        suggestedWorkspaceId: payload.suggestedWorkspaceId ?? null
       })
       .then(() => true)
       .catch(() => false);
@@ -88,6 +93,22 @@ async function notifyAssignPrompt(
 
 function safeRun(task: () => Promise<void>): void {
   void task().catch(() => undefined);
+}
+
+function contextMenusRemoveAll(): Promise<void> {
+  return new Promise((resolve) => {
+    chrome.contextMenus.removeAll(() => resolve());
+  });
+}
+
+function contextMenusCreate(options: chrome.contextMenus.CreateProperties): Promise<void> {
+  return new Promise((resolve) => {
+    chrome.contextMenus.create(options, () => {
+      // Drain lastError to avoid "Unchecked runtime.lastError" noise.
+      void chrome.runtime.lastError;
+      resolve();
+    });
+  });
 }
 
 function hexToTabGroupColor(hex: string): TabGroupColor {
@@ -144,6 +165,33 @@ function matchWorkspaceByUrl(url: string, workspaces: Workspace[]): Workspace | 
   return null;
 }
 
+function matchWorkspaceByHistory(url: string, workspaces: Workspace[], records: TabRecord[]): Workspace | null {
+  const domain = getDomain(url);
+  if (!domain) {
+    return null;
+  }
+  const workspaceById = new Map(workspaces.map((workspace) => [workspace.id, workspace]));
+  let latestRecord: TabRecord | null = null;
+  for (const record of records) {
+    if (!record.workspaceId) {
+      continue;
+    }
+    if (getDomain(record.url) !== domain) {
+      continue;
+    }
+    if (!workspaceById.has(record.workspaceId)) {
+      continue;
+    }
+    if (!latestRecord || record.lastAccessed > latestRecord.lastAccessed) {
+      latestRecord = record;
+    }
+  }
+  if (!latestRecord?.workspaceId) {
+    return null;
+  }
+  return workspaceById.get(latestRecord.workspaceId) ?? null;
+}
+
 async function ensureTabInWorkspaceGroup(tab: chrome.tabs.Tab, workspace: Workspace): Promise<void> {
   if (typeof tab.id !== "number" || typeof tab.windowId !== "number") {
     return;
@@ -152,7 +200,11 @@ async function ensureTabInWorkspaceGroup(tab: chrome.tabs.Tab, workspace: Worksp
   let groupMap = await getWorkspaceGroupMap();
   let groupId: number | undefined = groupMap[mapKey];
   const applyGroupMeta = async (targetGroupId: number) => {
-    await chrome.tabGroups.update(targetGroupId, { title: workspace.name, color: hexToTabGroupColor(workspace.color) });
+    const language = await getStoredLanguage();
+    await chrome.tabGroups.update(targetGroupId, {
+      title: t(workspace.name, undefined, language),
+      color: hexToTabGroupColor(workspace.color)
+    });
   };
 
   try {
@@ -186,8 +238,11 @@ async function assignAndPersistTab(tab: chrome.tabs.Tab): Promise<void> {
     return;
   }
   const workspaces = await getWorkspaces();
-  const matched = tab.url ? matchWorkspaceByUrl(tab.url, workspaces) : null;
-  const existing = (await getTabRecords()).find((item) => item.tabId === tab.id);
+  const records = await getTabRecords();
+  const existing = records.find((item) => item.tabId === tab.id);
+  const matchedByPattern = tab.url ? matchWorkspaceByUrl(tab.url, workspaces) : null;
+  const matchedByHistory = !matchedByPattern && tab.url ? matchWorkspaceByHistory(tab.url, workspaces, records) : null;
+  const matched = matchedByPattern;
   const now = Date.now();
   await updateTabRecord({
     tabId: tab.id,
@@ -202,6 +257,24 @@ async function assignAndPersistTab(tab: chrome.tabs.Tab): Promise<void> {
   const settings = await getRuntimeSettings();
   if (matched && settings.autoCreateTabGroup) {
     await ensureTabInWorkspaceGroup(tab, matched);
+  }
+  // If patterns didn't match but history suggests a workspace, ask first.
+  if (!matched && matchedByHistory && settings.autoAssignPrompt && tab.url && typeof tab.id === "number") {
+    const domain = getDomain(tab.url);
+    const ignored = await getIgnoredDomains();
+    if (!ignored.includes(domain) && tab.url.startsWith("http")) {
+      await notifyAssignPrompt(tab.id, {
+        domain,
+        suggestedWorkspaceId: matchedByHistory.id,
+        workspaces: workspaces.map((workspace) => ({
+          id: workspace.id,
+          name: workspace.name,
+          color: workspace.color
+        }))
+      });
+    }
+    await syncBadgeFromRecords();
+    return;
   }
   if (!matched && settings.autoAssignPrompt && tab.url && typeof tab.id === "number") {
     const domain = getDomain(tab.url);
@@ -231,12 +304,13 @@ async function reconcileTabRecords(logPrefix?: string): Promise<TabRecord[]> {
       continue;
     }
     const existing = existingByTabId.get(tab.id);
-    const matched = tab.url ? matchWorkspaceByUrl(tab.url, workspaces) : null;
+    const matchedByPattern = tab.url ? matchWorkspaceByUrl(tab.url, workspaces) : null;
     const now = Date.now();
     records.push({
       tabId: tab.id,
       windowId: tab.windowId,
-      workspaceId: existing?.workspaceId ?? matched?.id ?? null,
+      // Never auto-reassign by history in periodic reconciliation; keep user intent stable.
+      workspaceId: existing?.workspaceId ?? matchedByPattern?.id ?? null,
       url: tab.url ?? existing?.url ?? "",
       title: tab.title ?? existing?.title ?? "",
       favIconUrl: tab.favIconUrl ?? existing?.favIconUrl ?? "",
@@ -374,6 +448,20 @@ async function closeSingleTab(tabId: number): Promise<void> {
   await chrome.tabs.remove(tabId);
 }
 
+async function closeTabs(tabIds: number[]): Promise<void> {
+  const unique = Array.from(new Set(tabIds.filter((id): id is number => typeof id === "number")));
+  if (unique.length === 0) {
+    return;
+  }
+  const openTabs = await chrome.tabs.query({});
+  const openIdSet = new Set(openTabs.map((t) => t.id).filter((id): id is number => typeof id === "number"));
+  const valid = unique.filter((id) => openIdSet.has(id));
+  if (valid.length === 0) {
+    return;
+  }
+  await chrome.tabs.remove(valid);
+}
+
 async function moveTabToWorkspace(tabId: number, workspaceId: string | null): Promise<void> {
   const tab = await chrome.tabs.get(tabId).catch(() => null);
   if (!tab) {
@@ -461,42 +549,34 @@ async function refreshContextMenuTitle(): Promise<void> {
   }
 
   contextMenuRefreshInFlight = (async () => {
-  const language = await getStoredLanguage();
-  const title = t("contextMenuOpenDashboard", undefined, language);
-  const assignRoot = t("contextMenuAssignTo", undefined, language);
-  const assignNew = t("contextMenuAssignNewTask", undefined, language);
-  const workspaces = (await getWorkspaces()).sort((a, b) => a.order - b.order);
+    const language = await getStoredLanguage();
+    const title = t("contextMenuOpenDashboard", undefined, language);
+    const assignRoot = t("contextMenuAssignTo", undefined, language);
+    const assignNew = t("contextMenuAssignNewTask", undefined, language);
+    const workspaces = (await getWorkspaces()).sort((a, b) => a.order - b.order);
 
-  await chrome.contextMenus.removeAll().catch(() => undefined);
+    // IMPORTANT: contextMenus APIs are callback-based; wrap to truly await.
+    await contextMenusRemoveAll();
 
-  const createSafe = (options: chrome.contextMenus.CreateProperties) => {
-    chrome.contextMenus.create(options, () => {
-      if (chrome.runtime.lastError) {
-        chrome.contextMenus.update(String(options.id), options, () => undefined);
-      }
-    });
-  };
-
-  createSafe({ id: DASHBOARD_MENU_ID, title, contexts: ["action"] });
-  createSafe({ id: ASSIGN_ROOT_MENU_ID, title: assignRoot, contexts: ["page"] });
-  for (const workspace of workspaces) {
-    createSafe({
-      id: `${ASSIGN_WORKSPACE_PREFIX}${workspace.id}`,
+    await contextMenusCreate({ id: DASHBOARD_MENU_ID, title, contexts: ["action"] });
+    await contextMenusCreate({ id: ASSIGN_ROOT_MENU_ID, title: assignRoot, contexts: ["page"] });
+    for (const workspace of workspaces) {
+      await contextMenusCreate({
+        id: `${ASSIGN_WORKSPACE_PREFIX}${workspace.id}`,
+        parentId: ASSIGN_ROOT_MENU_ID,
+        title: t(workspace.name, undefined, language),
+        contexts: ["page"]
+      });
+    }
+    await contextMenusCreate({
+      id: ASSIGN_NEW_MENU_ID,
       parentId: ASSIGN_ROOT_MENU_ID,
-      title: workspace.name,
+      title: assignNew,
       contexts: ["page"]
     });
-  }
-  createSafe({
-    id: ASSIGN_NEW_MENU_ID,
-    parentId: ASSIGN_ROOT_MENU_ID,
-    title: assignNew,
-    contexts: ["page"]
+  })().finally(() => {
+    contextMenuRefreshInFlight = null;
   });
-  })()
-    .finally(() => {
-      contextMenuRefreshInFlight = null;
-    });
 
   await contextMenuRefreshInFlight;
 }
@@ -561,6 +641,10 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
         case "popup:closeTab":
         case "dashboard:closeTab":
           await closeSingleTab(message.tabId);
+          sendResponse({ ok: true });
+          break;
+        case "popup:closeTabs":
+          await closeTabs((message.tabIds as number[] | undefined) ?? []);
           sendResponse({ ok: true });
           break;
         case "popup:addWorkspace":
@@ -670,10 +754,22 @@ chrome.tabs.onCreated.addListener((tab) => {
 });
 
 chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
-  if (changeInfo.status === "complete") {
+  if (changeInfo.status === "complete" || typeof changeInfo.url === "string") {
     safeRun(async () => {
-      console.log("[flox tabs.onUpdated complete]", { tabId, windowId: tab.windowId });
-      await assignAndPersistTab({ ...tab, id: tabId });
+      const updated = await chrome.tabs.get(tabId).catch(() => null);
+      const windowId = updated?.windowId ?? tab.windowId;
+      const url = updated?.url ?? changeInfo.url ?? tab.url;
+      console.log("[flox tabs.onUpdated]", {
+        tabId,
+        windowId,
+        status: changeInfo.status,
+        url
+      });
+      if (updated) {
+        await assignAndPersistTab(updated);
+      } else {
+        await assignAndPersistTab({ ...tab, id: tabId, url: url ?? tab.url });
+      }
     });
   }
 });

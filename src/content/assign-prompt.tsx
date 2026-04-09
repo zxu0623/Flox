@@ -8,6 +8,7 @@ let collapsed = false;
 let collapseTimer: number | null = null;
 let currentDomain = "";
 let currentWorkspaces: WorkspaceLite[] = [];
+let suggestedWorkspaceId: string | null = null;
 
 function ensureHost() {
   if (host && shadow) return;
@@ -48,16 +49,33 @@ function render() {
     return;
   }
 
+  const suggested = suggestedWorkspaceId
+    ? currentWorkspaces.find((ws) => ws.id === suggestedWorkspaceId) ?? null
+    : null;
+
   const wsButtons = currentWorkspaces
     .map(
       (ws) =>
         `<button data-wsid="${ws.id}"><span class="dot" style="background:${ws.color}"></span>${t(ws.name)}</button>`
     )
     .join("");
+
+  const suggestedRow = suggested
+    ? `
+      <div class="row" style="margin-bottom:10px">
+        <p class="title" style="margin:0">${t("assignPromptReassignTitle", [t(suggested.name)])}</p>
+      </div>
+      <div class="row" style="margin:-4px 0 10px 0">
+        <button data-suggested="1"><span class="dot" style="background:${suggested.color}"></span>${t("assignPromptAssignSuggested")}</button>
+        <button class="ghost" data-notnow="1">${t("assignPromptNotNow")}</button>
+      </div>
+    `
+    : `<p class="title">${t("assignPromptTitle")}</p>`;
+
   shadow.innerHTML = `
     <style>${styles}</style>
     <div class="panel">
-      <p class="title">${t("assignPromptTitle")}</p>
+      ${suggestedRow}
       <div class="row">${wsButtons}</div>
       <div class="row" style="margin-top:10px">
         <button class="ghost" data-skip="1">${t("assignPromptSkip")}</button>
@@ -65,6 +83,12 @@ function render() {
       </div>
     </div>
   `;
+
+  shadow.querySelector("button[data-suggested]")?.addEventListener("click", () => {
+    if (suggestedWorkspaceId) send({ type: "content:assignWorkspace", workspaceId: suggestedWorkspaceId });
+    destroy();
+  });
+  shadow.querySelector("button[data-notnow]")?.addEventListener("click", () => destroy());
 
   shadow.querySelectorAll("button[data-wsid]").forEach((button) => {
     button.addEventListener("click", () => {
@@ -104,6 +128,7 @@ chrome.runtime.onMessage.addListener((message) => {
     ensureHost();
     currentDomain = message.domain ?? "";
     currentWorkspaces = (message.workspaces as WorkspaceLite[]) ?? [];
+    suggestedWorkspaceId = (message.suggestedWorkspaceId as string | null | undefined) ?? null;
     collapsed = false;
     render();
     startCollapseTimer();

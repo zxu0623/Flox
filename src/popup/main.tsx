@@ -64,6 +64,17 @@ function formatLastAccessed(lastAccessed: number, language: LanguageCode): strin
   return t("popupJustNow", undefined, language);
 }
 
+function formatIdleDuration(lastAccessed: number, language: LanguageCode): string {
+  const diffMs = Math.max(0, Date.now() - lastAccessed);
+  const totalMinutes = Math.floor(diffMs / 60000);
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  if (hours <= 0) {
+    return t("popupIdleDurationHm", ["0", String(minutes)], language);
+  }
+  return t("popupIdleDurationHm", [String(hours), String(minutes)], language);
+}
+
 function formatStashedAt(stashedAt: number, language: LanguageCode): string {
   return t("popupStashedAt", [formatLastAccessed(stashedAt, language)], language);
 }
@@ -179,10 +190,17 @@ function TabList({
   );
 }
 
+type IdleGroup = {
+  key: string;
+  workspaceId: string | null;
+  name: string;
+  color: string;
+  tabs: PopupTabItem[];
+};
+
 function PopupApp() {
   const [language, setLanguage] = React.useState<LanguageCode>("auto");
   const [snapshot, setSnapshot] = React.useState<PopupSnapshot>(DEFAULT_SNAPSHOT);
-  const [expandedIdle, setExpandedIdle] = React.useState(false);
   const [expandedUnassigned, setExpandedUnassigned] = React.useState(false);
   const [expandedWorkspaceIds, setExpandedWorkspaceIds] = React.useState<string[]>([]);
   const [showUpgradePrompt, setShowUpgradePrompt] = React.useState(false);
@@ -196,6 +214,7 @@ function PopupApp() {
   const [loadingKey, setLoadingKey] = React.useState<string | null>(null);
   const [closingTabIds, setClosingTabIds] = React.useState<Set<number>>(new Set());
   const [debugButtonVisible, setDebugButtonVisible] = React.useState(false);
+  const [closingIdleGroupKeys, setClosingIdleGroupKeys] = React.useState<Set<string>>(new Set());
 
   React.useEffect(() => {
     void getStoredLanguage().then(setLanguage);
@@ -270,16 +289,61 @@ function PopupApp() {
     }
   };
 
-  const handleCloseIdleAll = async () => {
-    if (!window.confirm(t("popupConfirmCloseIdle", undefined, language))) {
-      return;
+  const idleGroups: IdleGroup[] = React.useMemo(() => {
+    if (snapshot.idleTabs.length === 0) {
+      return [];
     }
-    setLoadingKey("idle-close-all");
+    const wsById = new Map(snapshot.workspaces.map((ws) => [ws.id, ws]));
+    const buckets = new Map<string, IdleGroup>();
     for (const tab of snapshot.idleTabs) {
-      await sendMessage({ type: "popup:closeTab", tabId: tab.tabId });
+      const workspace = tab.workspaceId ? wsById.get(tab.workspaceId) : null;
+      const key = tab.workspaceId ?? "unassigned";
+      const name = workspace ? t(workspace.name, undefined, language) : t("popupIdleUnassigned", undefined, language);
+      const color = workspace ? workspace.color : "#64748b";
+      const existing = buckets.get(key);
+      if (existing) {
+        existing.tabs.push(tab);
+      } else {
+        buckets.set(key, { key, workspaceId: tab.workspaceId, name, color, tabs: [tab] });
+      }
     }
-    await refreshSnapshot();
-    setLoadingKey(null);
+    return [...buckets.values()]
+      .map((group) => ({ ...group, tabs: [...group.tabs].sort((a, b) => a.lastAccessed - b.lastAccessed) }))
+      .sort((a, b) => b.tabs.length - a.tabs.length);
+  }, [snapshot.idleTabs, snapshot.workspaces, language]);
+
+  const closeIdleTabsByGroup = async (group: IdleGroup) => {
+    const count = group.tabs.length;
+    const ok = window.confirm(t("popupIdleCloseWorkspaceConfirm", [group.name, String(count)], language));
+    if (!ok) return;
+    setClosingIdleGroupKeys((current) => new Set(current).add(group.key));
+    setLoadingKey(`idle-close-${group.key}`);
+    const tabIds = group.tabs.map((tab) => tab.tabId);
+    try {
+      await sendMessage({ type: "popup:closeTabs", tabIds });
+      await refreshSnapshot();
+    } finally {
+      setLoadingKey(null);
+      setClosingIdleGroupKeys((current) => {
+        const next = new Set(current);
+        next.delete(group.key);
+        return next;
+      });
+    }
+  };
+
+  const closeIdleTabsAll = async () => {
+    const count = snapshot.idleTabs.length;
+    const ok = window.confirm(t("popupIdleCloseAllConfirm", [String(count)], language));
+    if (!ok) return;
+    setLoadingKey("idle-close-all");
+    const tabIds = snapshot.idleTabs.map((tab) => tab.tabId);
+    try {
+      await sendMessage({ type: "popup:closeTabs", tabIds });
+      await refreshSnapshot();
+    } finally {
+      setLoadingKey(null);
+    }
   };
 
   const handleToggleWorkspaceExpanded = (workspaceId: string) => {
@@ -439,27 +503,75 @@ function PopupApp() {
       </header>
 
       {snapshot.idleTabs.length > 0 ? (
-        <section className="mt-2 rounded-lg border border-amber-600/40 bg-amber-900/20 p-2">
-          <button
-            type="button"
-            onClick={() => setExpandedIdle((value) => !value)}
-            className="w-full text-left text-xs text-amber-200"
-          >
-            {t("popupIdleReminder", [String(snapshot.idleTabs.length)], language)}
-          </button>
-          <div className={`mt-2 overflow-hidden transition-all duration-200 ${expandedIdle ? "max-h-96 opacity-100" : "max-h-0 opacity-0"}`}>
-              <div className="mb-2 flex gap-2">
-                <button
-                  type="button"
-                  onClick={() => void handleCloseIdleAll()}
-                  className="tooltip-trigger rounded border border-amber-400 px-2 py-1 text-[11px] text-amber-200"
-                  data-tooltip={t("tooltipCloseAllTabs", undefined, language)}
-                >
-                  {t("popupCloseAll", undefined, language)}
-                </button>
-              </div>
-              <TabList tabs={snapshot.idleTabs} language={language} onClose={handleCloseTab} closingTabIds={closingTabIds} />
+        <section className="mt-2 rounded-lg border border-amber-600/40 bg-amber-900/15 p-2">
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex min-w-0 flex-1 gap-2 overflow-x-auto py-0.5">
+              {idleGroups.map((group) => {
+                const isClosing = closingIdleGroupKeys.has(group.key);
+                return (
+                  <div
+                    key={group.key}
+                    className={`group relative flex shrink-0 items-center gap-1.5 rounded-full border border-amber-500/30 bg-amber-500/10 px-2 py-1 text-[11px] text-amber-100 transition-all duration-150 ${
+                      isClosing ? "translate-y-1 opacity-0" : "opacity-100"
+                    }`}
+                  >
+                    <span className="h-2 w-2 rounded-full" style={{ backgroundColor: group.color }} />
+                    <span className="max-w-[140px] truncate">{group.name}</span>
+                    <span className="text-amber-200/90">{t("popupIdleChipCount", [String(group.tabs.length)], language)}</span>
+                    <button
+                      type="button"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        void closeIdleTabsByGroup(group);
+                      }}
+                      className="ml-1 rounded-full px-1 text-amber-200/80 hover:bg-amber-500/15 hover:text-amber-100"
+                      aria-label="close"
+                    >
+                      ×
+                    </button>
+
+                    <div className="pointer-events-none absolute left-0 top-full z-30 hidden w-[320px] pt-2 group-hover:block">
+                      <div className="relative rounded-lg border border-slate-800 bg-slate-950 p-3 shadow-xl shadow-black/40">
+                        <div className="absolute -top-1.5 left-6 h-3 w-3 rotate-45 border border-slate-800 bg-slate-950" />
+                        <p className="text-xs font-semibold text-slate-100">
+                          {t("popupIdleTooltipTitle", [group.name, String(group.tabs.length)], language)}
+                        </p>
+                        <div className="mt-2 space-y-1.5">
+                          {group.tabs.slice(0, 8).map((tab) => (
+                            <div key={tab.tabId} className="flex items-center gap-2">
+                              <img
+                                src={tab.favIconUrl || "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw=="}
+                                alt=""
+                                className="h-4 w-4 rounded-sm"
+                              />
+                              <div className="min-w-0 flex-1">
+                                <p className="truncate text-[11px] text-slate-200">
+                                  {tab.title || t("popupUnknownTitle", undefined, language)}
+                                </p>
+                                <p className="text-[10px] text-slate-500">
+                                  {t("popupIdleTooltipRow", [formatIdleDuration(tab.lastAccessed, language)], language)}
+                                </p>
+                              </div>
+                            </div>
+                          ))}
+                          {group.tabs.length > 8 ? (
+                            <p className="pt-1 text-[10px] text-slate-500">…</p>
+                          ) : null}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
+            <button
+              type="button"
+              onClick={() => void closeIdleTabsAll()}
+              className="shrink-0 rounded border border-amber-500/40 px-2 py-1 text-[11px] text-amber-200 hover:bg-amber-500/10"
+            >
+              {loadingKey === "idle-close-all" ? t("loading", undefined, language) : t("popupIdleCleanAll", undefined, language)}
+            </button>
+          </div>
         </section>
       ) : null}
 

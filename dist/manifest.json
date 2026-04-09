@@ -35,7 +35,7 @@
   "content_scripts": [
     {
       "js": [
-        "assets/assign-prompt.tsx-loader-BmN6kW-m.js"
+        "assets/assign-prompt.tsx-loader-DgvRKBaM.js"
       ],
       "matches": [
         "<all_urls>"
@@ -53,8 +53,8 @@
         "<all_urls>"
       ],
       "resources": [
-        "assets/i18n-CWYdL-Tb.js",
-        "assets/assign-prompt.tsx-C0yHK22M.js"
+        "assets/i18n-DEcFeoyY.js",
+        "assets/assign-prompt.tsx-C6QY9BsC.js"
       ],
       "use_dynamic_url": false
     }

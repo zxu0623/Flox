@@ -45,6 +45,29 @@
     "message": "你有 $COUNT$ 个标签页已经超过 2 小时没看了",
     "placeholders": { "count": { "content": "$1" } }
   },
+  "popupIdleUnassigned": { "message": "未分配" },
+  "popupIdleChipCount": { "message": "×$COUNT$", "placeholders": { "count": { "content": "$1" } } },
+  "popupIdleTooltipTitle": {
+    "message": "「$NAME$」有 $COUNT$ 个标签页长时间未访问",
+    "placeholders": { "name": { "content": "$1" }, "count": { "content": "$2" } }
+  },
+  "popupIdleTooltipRow": {
+    "message": "$TIME$ 未访问",
+    "placeholders": { "time": { "content": "$1" } }
+  },
+  "popupIdleDurationHm": {
+    "message": "$HOURS$小时$MINUTES$分钟",
+    "placeholders": { "hours": { "content": "$1" }, "minutes": { "content": "$2" } }
+  },
+  "popupIdleCloseWorkspaceConfirm": {
+    "message": "关闭「$NAME$」中 $COUNT$ 个长时间未访问的标签页？",
+    "placeholders": { "name": { "content": "$1" }, "count": { "content": "$2" } }
+  },
+  "popupIdleCloseAllConfirm": {
+    "message": "关闭所有任务中共 $COUNT$ 个长时间未访问的标签页？",
+    "placeholders": { "count": { "content": "$1" } }
+  },
+  "popupIdleCleanAll": { "message": "全部清理" },
   "popupExpand": { "message": "展开" },
   "popupCollapse": { "message": "收起" },
   "popupCloseAll": { "message": "全部关闭" },
@@ -111,6 +134,12 @@
   "tooltipLearnPro": { "message": "了解 Flox Pro" },
   "tooltipOpenSettings": { "message": "打开设置" },
   "assignPromptTitle": { "message": "Flox：这个页面属于哪个任务？" },
+  "assignPromptReassignTitle": {
+    "message": "要把这个页面分配到「$NAME$」吗？",
+    "placeholders": { "name": { "content": "$1" } }
+  },
+  "assignPromptAssignSuggested": { "message": "分配" },
+  "assignPromptNotNow": { "message": "暂不" },
   "assignPromptSkip": { "message": "跳过" },
   "assignPromptIgnoreDomain": { "message": "总是忽略此网站" },
   "loading": { "message": "加载中..." },

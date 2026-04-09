@@ -45,6 +45,29 @@
     "message": "You have $COUNT$ tabs not viewed for over 2 hours.",
     "placeholders": { "count": { "content": "$1" } }
   },
+  "popupIdleUnassigned": { "message": "Unassigned" },
+  "popupIdleChipCount": { "message": "×$COUNT$", "placeholders": { "count": { "content": "$1" } } },
+  "popupIdleTooltipTitle": {
+    "message": "$NAME$ has $COUNT$ long-idle tabs",
+    "placeholders": { "name": { "content": "$1" }, "count": { "content": "$2" } }
+  },
+  "popupIdleTooltipRow": {
+    "message": "Idle for $TIME$",
+    "placeholders": { "time": { "content": "$1" } }
+  },
+  "popupIdleDurationHm": {
+    "message": "$HOURS$h $MINUTES$m",
+    "placeholders": { "hours": { "content": "$1" }, "minutes": { "content": "$2" } }
+  },
+  "popupIdleCloseWorkspaceConfirm": {
+    "message": "Close $COUNT$ long-idle tabs in “$NAME$”?",
+    "placeholders": { "name": { "content": "$1" }, "count": { "content": "$2" } }
+  },
+  "popupIdleCloseAllConfirm": {
+    "message": "Close $COUNT$ long-idle tabs across all tasks?",
+    "placeholders": { "count": { "content": "$1" } }
+  },
+  "popupIdleCleanAll": { "message": "Clean all" },
   "popupExpand": { "message": "Expand" },
   "popupCollapse": { "message": "Collapse" },
   "popupCloseAll": { "message": "Close all" },
@@ -111,6 +134,12 @@
   "tooltipLearnPro": { "message": "Learn Flox Pro" },
   "tooltipOpenSettings": { "message": "Open settings" },
   "assignPromptTitle": { "message": "Flox: Which task does this page belong to?" },
+  "assignPromptReassignTitle": {
+    "message": "Assign this page to “$NAME$”?",
+    "placeholders": { "name": { "content": "$1" } }
+  },
+  "assignPromptAssignSuggested": { "message": "Assign" },
+  "assignPromptNotNow": { "message": "Not now" },
   "assignPromptSkip": { "message": "Skip" },
   "assignPromptIgnoreDomain": { "message": "Always ignore this site" },
   "loading": { "message": "Loading..." },
