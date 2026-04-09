@@ -5,8 +5,9 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc -b && vite build && mkdir -p dist/_locales && cp -R _locales/en dist/_locales/en && cp -R _locales/zh_CN dist/_locales/zh_CN",
-    "preview": "vite preview"
+    "build": "tsc -b && vite build && rm -rf dist/_locales && mkdir -p dist/_locales && cp -R _locales/en dist/_locales/ && cp -R _locales/zh_CN dist/_locales/",
+    "preview": "vite preview",
+    "zip": "node scripts/zip-extension.mjs"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",

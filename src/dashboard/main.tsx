@@ -5,9 +5,7 @@ import { arrayMove, SortableContext, useSortable, verticalListSortingStrategy } 
 import { CSS } from "@dnd-kit/utilities";
 import { FixedSizeList } from "react-window";
 import "../styles.css";
-import { UpgradePrompt } from "../components/UpgradePrompt";
 import { getStoredLanguage, setStoredLanguage, type LanguageCode, t } from "../utils/i18n";
-import { checkFeature } from "../utils/plan";
 import { workspaceTemplates } from "../utils/templates";
 
 type ViewKey = "overview" | "unassigned" | "stashed" | "stats" | "workspace" | "settings";
@@ -198,8 +196,6 @@ function DashboardApp() {
   const [data, setData] = React.useState<DashboardSnapshot>(DEFAULT_DATA);
   const [view, setView] = React.useState<ViewKey>("overview");
   const [activeWorkspaceId, setActiveWorkspaceId] = React.useState<string | null>(null);
-  const [showProModal, setShowProModal] = React.useState(false);
-  const [statsEnabled, setStatsEnabled] = React.useState(false);
   const [expandedStashed, setExpandedStashed] = React.useState<string[]>([]);
   const [draggingWorkspaceId, setDraggingWorkspaceId] = React.useState<string | null>(null);
   const [loadingKey, setLoadingKey] = React.useState<string | null>(null);
@@ -225,7 +221,6 @@ function DashboardApp() {
     void (async () => {
       const lang = await getStoredLanguage();
       setLanguage(lang);
-      setStatsEnabled(await checkFeature("statistics"));
       const storageValues = await chrome.storage.local.get(["flox.settings", "flox.onboardingCompleted"]);
       const savedSettings = storageValues["flox.settings"] as Partial<typeof settings> | undefined;
       if (savedSettings) {
@@ -452,7 +447,6 @@ function DashboardApp() {
             <button type="button" onClick={() => setView("overview")} className={`w-full rounded px-2 py-1 text-left ${view === "overview" ? "bg-slate-700" : "hover:bg-slate-800"}`}>{t("dashboardNavOverview", undefined, language)}</button>
             <button type="button" onClick={() => setView("unassigned")} className={`w-full rounded px-2 py-1 text-left ${view === "unassigned" ? "bg-slate-700" : "hover:bg-slate-800"}`}>{t("dashboardNavUnassigned", undefined, language)}</button>
             <button type="button" onClick={() => setView("stashed")} className={`w-full rounded px-2 py-1 text-left ${view === "stashed" ? "bg-slate-700" : "hover:bg-slate-800"}`}>{t("dashboardNavStashed", undefined, language)}</button>
-            <button type="button" onClick={() => setView("stats")} className={`w-full rounded px-2 py-1 text-left ${view === "stats" ? "bg-slate-700" : "hover:bg-slate-800"}`}>{t("dashboardNavStats", undefined, language)}</button>
             <button type="button" onClick={() => setView("settings")} className={`w-full rounded px-2 py-1 text-left ${view === "settings" ? "bg-slate-700" : "hover:bg-slate-800"}`}>⚙️ {t("settingsTitle", undefined, language)}</button>
           </div>
 
@@ -478,14 +472,6 @@ function DashboardApp() {
             </SortableContext>
           </div>
 
-          <button
-            type="button"
-            onClick={() => setShowProModal(true)}
-            className="tooltip-trigger mt-3 rounded bg-gradient-to-r from-violet-600 to-indigo-500 px-3 py-2 text-sm"
-            data-tooltip={t("tooltipLearnPro", undefined, language)}
-          >
-            ✨ {t("dashboardUpgradePro", undefined, language)}
-          </button>
           <div className="mt-2">
             <label className="text-xs text-slate-400">{t("languageLabel", undefined, language)}</label>
             <select value={language} onChange={handleLanguageChange} className="mt-1 w-full rounded border border-slate-700 bg-slate-950 px-2 py-1 text-xs">
@@ -725,7 +711,7 @@ function DashboardApp() {
           {view === "stats" ? (
             <div className="relative">
               <h2 className="text-2xl font-semibold">{t("dashboardNavStats", undefined, language)}</h2>
-              <div className={`mt-4 rounded border border-slate-800 bg-slate-900/60 p-4 ${statsEnabled ? "" : "blur-[2px]"}`}>
+              <div className="mt-4 rounded border border-slate-800 bg-slate-900/60 p-4">
                 <div className="h-44 rounded border border-slate-800 p-2">
                   <div className="flex h-full items-end gap-2">
                     {data.weekly.map((day) => {
@@ -749,11 +735,6 @@ function DashboardApp() {
                   ))}
                 </div>
               </div>
-              {statsEnabled ? null : (
-                <div className="absolute inset-0 flex items-center justify-center rounded-lg bg-slate-950/65 backdrop-blur-sm">
-                  <UpgradePrompt feature="statistics" language={language} />
-                </div>
-              )}
             </div>
           ) : null}
 
@@ -879,14 +860,6 @@ function DashboardApp() {
             </div>
           ) : null}
         </section>
-
-        {showProModal ? (
-          <div className="fixed inset-0 z-20 flex items-center justify-center bg-black/50" onClick={() => setShowProModal(false)}>
-            <div className="rounded-lg border border-slate-700 bg-slate-900 px-5 py-4" onClick={(event) => event.stopPropagation()}>
-              <UpgradePrompt feature="unlimitedWorkspaces" language={language} onClose={() => setShowProModal(false)} />
-            </div>
-          </div>
-        ) : null}
 
         <DragOverlay>{draggingWorkspaceId ? <div className="rounded bg-slate-700 px-2 py-1 text-xs">{draggingWorkspaceId}</div> : null}</DragOverlay>
         {showOnboarding ? (

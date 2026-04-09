@@ -2,7 +2,6 @@ import React from "react";
 import ReactDOM from "react-dom/client";
 import { FixedSizeList, type ListChildComponentProps } from "react-window";
 import "../styles.css";
-import { UpgradePrompt } from "../components/UpgradePrompt";
 import { getStoredLanguage, type LanguageCode, t } from "../utils/i18n";
 import { checkFeature, PLAN_LIMITS } from "../utils/plan";
 
@@ -203,7 +202,6 @@ function PopupApp() {
   const [snapshot, setSnapshot] = React.useState<PopupSnapshot>(DEFAULT_SNAPSHOT);
   const [expandedUnassigned, setExpandedUnassigned] = React.useState(false);
   const [expandedWorkspaceIds, setExpandedWorkspaceIds] = React.useState<string[]>([]);
-  const [showUpgradePrompt, setShowUpgradePrompt] = React.useState(false);
   const [editorMounted, setEditorMounted] = React.useState(false);
   const [editorActive, setEditorActive] = React.useState(false);
   const [editingWorkspaceId, setEditingWorkspaceId] = React.useState<string | null>(null);
@@ -248,12 +246,6 @@ function PopupApp() {
     } catch {
       // Background may still be spinning up; keep popup stable.
     }
-  };
-
-  const openProPage = async () => {
-    await chrome.tabs.create({
-      url: chrome.runtime.getURL(t("popupProPageUrl", undefined, language))
-    });
   };
 
   const handleCloseTab = async (tabId: number) => {
@@ -376,10 +368,9 @@ function PopupApp() {
   const handleNewTask = async () => {
     const canCreateUnlimited = await checkFeature("unlimitedWorkspaces");
     if (!canCreateUnlimited && snapshot.workspaces.length >= PLAN_LIMITS.FREE.maxWorkspaces) {
-      setShowUpgradePrompt(true);
+      window.alert(t("workspaceLimitReached", [String(PLAN_LIMITS.FREE.maxWorkspaces)], language));
       return;
     }
-    setShowUpgradePrompt(false);
     setEditingWorkspaceId(null);
     setWorkspaceNameInput("");
     setWorkspaceColorInput(WORKSPACE_COLORS[0]);
@@ -390,7 +381,6 @@ function PopupApp() {
   };
 
   const openEditorForWorkspace = (workspace: PopupWorkspaceItem) => {
-    setShowUpgradePrompt(false);
     setEditingWorkspaceId(workspace.id);
     setWorkspaceNameInput(t(workspace.name, undefined, language));
     setWorkspaceColorInput(workspace.color);
@@ -423,7 +413,7 @@ function PopupApp() {
     const name = workspaceNameInput.trim() || t("popupUntitledTask", undefined, language);
     const canCreateUnlimited = await checkFeature("unlimitedWorkspaces");
     if (!editingWorkspaceId && !canCreateUnlimited && snapshot.workspaces.length >= PLAN_LIMITS.FREE.maxWorkspaces) {
-      setShowUpgradePrompt(true);
+      window.alert(t("workspaceLimitReached", [String(PLAN_LIMITS.FREE.maxWorkspaces)], language));
       return;
     }
 
@@ -672,22 +662,7 @@ function PopupApp() {
           >
             {t("feedbackLink", undefined, language)}
           </button>
-          <button
-            type="button"
-            onClick={openProPage}
-            className="tooltip-trigger text-[11px] text-indigo-300 hover:text-indigo-200"
-            data-tooltip={t("tooltipLearnPro", undefined, language)}
-          >
-            {t("popupProCta", undefined, language)}
-          </button>
         </div>
-        {showUpgradePrompt ? (
-          <UpgradePrompt
-            feature="unlimitedWorkspaces"
-            language={language}
-            onClose={() => setShowUpgradePrompt(false)}
-          />
-        ) : null}
       </footer>
 
       {editorMounted ? (
