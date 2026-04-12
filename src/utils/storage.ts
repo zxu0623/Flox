@@ -27,10 +27,21 @@ export interface SavedTab {
   favIconUrl: string;
 }
 
+export interface PinnedLink {
+  id: string;
+  url: string;
+  title: string;
+  favIconUrl: string;
+  workspaceId: string | null;
+  order: number;
+  createdAt: number;
+}
+
 const STORAGE_KEYS = {
   workspaces: "flox.workspaces",
   tabRecords: "flox.tabRecords",
-  savedSessions: "flox.savedSessions"
+  savedSessions: "flox.savedSessions",
+  pinnedLinks: "flox.pinnedLinks"
 } as const;
 
 export interface SavedSession {
@@ -159,6 +170,93 @@ export async function deleteWorkspace(workspaceId: string): Promise<void> {
     [STORAGE_KEYS.savedSessions]: savedSessions
   });
   await setTabRecords(nextTabRecords);
+
+  const pinned = await getPinnedLinks();
+  const nextPinned = pinned.map((link) =>
+    link.workspaceId === workspaceId ? { ...link, workspaceId: null } : link
+  );
+  await setPinnedLinks(nextPinned);
+}
+
+export async function getPinnedLinks(): Promise<PinnedLink[]> {
+  const list = await storageGet<PinnedLink[]>(STORAGE_KEYS.pinnedLinks, []);
+  return [...list].sort((a, b) => a.order - b.order || a.createdAt - b.createdAt);
+}
+
+export async function setPinnedLinks(links: PinnedLink[]): Promise<void> {
+  await storageSet({ [STORAGE_KEYS.pinnedLinks]: links });
+}
+
+export async function getPinnedLinksByWorkspace(workspaceId: string): Promise<PinnedLink[]> {
+  const all = await getPinnedLinks();
+  return all.filter((link) => link.workspaceId === workspaceId);
+}
+
+export async function addPinnedLink(input: {
+  url: string;
+  title: string;
+  favIconUrl: string;
+  workspaceId: string | null;
+}): Promise<PinnedLink> {
+  const list = await getPinnedLinks();
+  const unlimited = await checkFeature("unlimitedPinnedLinks");
+  if (!unlimited && list.length >= PLAN_LIMITS.FREE.maxPinnedLinks) {
+    throw new Error("PINNED_LIMIT");
+  }
+  const now = Date.now();
+  const maxOrder = list.length === 0 ? -1 : Math.max(...list.map((l) => l.order));
+  const link: PinnedLink = {
+    id: createUuid(),
+    url: input.url.trim(),
+    title: input.title.trim() || input.url.trim(),
+    favIconUrl: input.favIconUrl || "",
+    workspaceId: input.workspaceId,
+    order: maxOrder + 1,
+    createdAt: now
+  };
+  await setPinnedLinks([...list, link]);
+  return link;
+}
+
+export async function updatePinnedLink(
+  id: string,
+  updates: Partial<Pick<PinnedLink, "url" | "title" | "favIconUrl" | "workspaceId" | "order">>
+): Promise<PinnedLink> {
+  const list = await getPinnedLinks();
+  const index = list.findIndex((l) => l.id === id);
+  if (index < 0) {
+    throw new Error(t("pinnedLinkNotFound"));
+  }
+  const updated: PinnedLink = { ...list[index], ...updates };
+  list[index] = updated;
+  await setPinnedLinks(list);
+  return updated;
+}
+
+export async function removePinnedLink(id: string): Promise<void> {
+  const list = await getPinnedLinks();
+  await setPinnedLinks(list.filter((l) => l.id !== id));
+}
+
+export async function reorderPinnedLinks(orderedIds: string[]): Promise<void> {
+  const list = await getPinnedLinks();
+  const byId = new Map(list.map((l) => [l.id, l]));
+  const next: PinnedLink[] = [];
+  let o = 0;
+  for (const id of orderedIds) {
+    const item = byId.get(id);
+    if (item) {
+      next.push({ ...item, order: o });
+      o += 1;
+    }
+  }
+  for (const item of list) {
+    if (!orderedIds.includes(item.id)) {
+      next.push({ ...item, order: o });
+      o += 1;
+    }
+  }
+  await setPinnedLinks(next);
 }
 
 export async function getTabRecords(): Promise<TabRecord[]> {

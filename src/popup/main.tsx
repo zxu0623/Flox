@@ -3,7 +3,9 @@ import ReactDOM from "react-dom/client";
 import { FixedSizeList, type ListChildComponentProps } from "react-window";
 import "../styles.css";
 import { getStoredLanguage, type LanguageCode, t } from "../utils/i18n";
-import { checkFeature, PLAN_LIMITS } from "../utils/plan";
+import { checkFeature, MONETIZATION_ENABLED, PLAN_LIMITS } from "../utils/plan";
+
+const PLACEHOLDER_FAVICON = "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==";
 
 interface PopupTabItem {
   tabId: number;
@@ -25,18 +27,31 @@ interface PopupWorkspaceItem {
   tabs: PopupTabItem[];
 }
 
+interface PinnedLinkSnapshotItem {
+  id: string;
+  url: string;
+  title: string;
+  favIconUrl: string;
+  workspaceId: string | null;
+  order: number;
+  createdAt: number;
+  domain: string;
+}
+
 interface PopupSnapshot {
   totalTabs: number;
   idleTabs: PopupTabItem[];
   unassignedTabs: PopupTabItem[];
   workspaces: PopupWorkspaceItem[];
+  pinnedLinks: PinnedLinkSnapshotItem[];
 }
 
 const DEFAULT_SNAPSHOT: PopupSnapshot = {
   totalTabs: 0,
   idleTabs: [],
   unassignedTabs: [],
-  workspaces: []
+  workspaces: [],
+  pinnedLinks: []
 };
 
 const WORKSPACE_COLORS = [
@@ -213,6 +228,26 @@ function PopupApp() {
   const [closingTabIds, setClosingTabIds] = React.useState<Set<number>>(new Set());
   const [debugButtonVisible, setDebugButtonVisible] = React.useState(false);
   const [closingIdleGroupKeys, setClosingIdleGroupKeys] = React.useState<Set<string>>(new Set());
+  const [mainTab, setMainTab] = React.useState<"tabs" | "pinned">("tabs");
+  const [pinnedEditor, setPinnedEditor] = React.useState<null | { mode: "add" } | { mode: "edit"; id: string }>(null);
+  const [pinUrl, setPinUrl] = React.useState("");
+  const [pinTitle, setPinTitle] = React.useState("");
+  const [pinWorkspaceId, setPinWorkspaceId] = React.useState<string>("");
+  const [pinFavIcon, setPinFavIcon] = React.useState("");
+  const [pinFetchLoading, setPinFetchLoading] = React.useState(false);
+  const [openMenuPinnedId, setOpenMenuPinnedId] = React.useState<string | null>(null);
+  const [lastWorkspaceTabPrompt, setLastWorkspaceTabPrompt] = React.useState<{
+    tabId: number;
+    workspaceId: string;
+    workspaceLabel: string;
+  } | null>(null);
+  const [unassignedBulkDismissed, setUnassignedBulkDismissed] = React.useState(false);
+
+  React.useEffect(() => {
+    if (snapshot.unassignedTabs.length === 0) {
+      setUnassignedBulkDismissed(false);
+    }
+  }, [snapshot.unassignedTabs.length]);
 
   React.useEffect(() => {
     void getStoredLanguage().then(setLanguage);
@@ -248,15 +283,30 @@ function PopupApp() {
     }
   };
 
-  const handleCloseTab = async (tabId: number) => {
+  const executeCloseTab = async (tabId: number, mode: "close" | "delete_workspace", workspaceId?: string) => {
     setClosingTabIds((current) => new Set(current).add(tabId));
     setLoadingKey(`tab-${tabId}`);
     setSnapshot((current) => {
       const remove = (tabs: PopupTabItem[]) => tabs.filter((tab) => tab.tabId !== tabId);
+      if (mode === "delete_workspace" && workspaceId) {
+        return {
+          totalTabs: Math.max(0, current.totalTabs - 1),
+          idleTabs: remove(current.idleTabs),
+          unassignedTabs: remove(current.unassignedTabs),
+          pinnedLinks: current.pinnedLinks,
+          workspaces: current.workspaces
+            .filter((workspace) => workspace.id !== workspaceId)
+            .map((workspace) => {
+              const tabs = remove(workspace.tabs);
+              return { ...workspace, tabs, tabCount: tabs.length };
+            })
+        };
+      }
       return {
         totalTabs: Math.max(0, current.totalTabs - 1),
         idleTabs: remove(current.idleTabs),
         unassignedTabs: remove(current.unassignedTabs),
+        pinnedLinks: current.pinnedLinks,
         workspaces: current.workspaces.map((workspace) => {
           const tabs = remove(workspace.tabs);
           return {
@@ -269,7 +319,11 @@ function PopupApp() {
     });
     await new Promise((resolve) => setTimeout(resolve, 150));
     try {
-      await sendMessage({ type: "popup:closeTab", tabId });
+      if (mode === "delete_workspace" && workspaceId) {
+        await sendMessage({ type: "popup:closeWorkspaceTab", tabId, workspaceId, deleteWorkspace: true });
+      } else {
+        await sendMessage({ type: "popup:closeTab", tabId });
+      }
       await refreshSnapshot();
     } finally {
       setLoadingKey(null);
@@ -279,6 +333,32 @@ function PopupApp() {
         return next;
       });
     }
+  };
+
+  const handleCloseTabRequest = async (tabId: number): Promise<void> => {
+    for (const workspace of snapshot.workspaces) {
+      if (workspace.tabs.some((tab) => tab.tabId === tabId)) {
+        const res = await sendMessage<{ ok: boolean; count?: number }>({
+          type: "flox:countWorkspaceOpenTabs",
+          workspaceId: workspace.id,
+          excludeTabId: tabId
+        });
+        const otherOpen =
+          res.ok && typeof res.count === "number"
+            ? res.count
+            : workspace.tabs.filter((t) => t.tabId !== tabId).length;
+        if (otherOpen === 0) {
+          setLastWorkspaceTabPrompt({
+            tabId,
+            workspaceId: workspace.id,
+            workspaceLabel: t(workspace.name, undefined, language)
+          });
+          return;
+        }
+        break;
+      }
+    }
+    await executeCloseTab(tabId, "close");
   };
 
   const idleGroups: IdleGroup[] = React.useMemo(() => {
@@ -335,6 +415,21 @@ function PopupApp() {
       await refreshSnapshot();
     } finally {
       setLoadingKey(null);
+    }
+  };
+
+  const closeAllUnassignedTabs = async () => {
+    const tabIds = snapshot.unassignedTabs.map((tab) => tab.tabId);
+    if (tabIds.length === 0) {
+      return;
+    }
+    setLoadingKey("unassigned-close-all");
+    try {
+      await sendMessage({ type: "popup:closeTabs", tabIds });
+      await refreshSnapshot();
+    } finally {
+      setLoadingKey(null);
+      setUnassignedBulkDismissed(true);
     }
   };
 
@@ -454,6 +549,117 @@ function PopupApp() {
 
   const maxWorkspaceTabs = Math.max(1, ...snapshot.workspaces.map((workspace) => workspace.tabCount));
 
+  const sortedPinned = React.useMemo(
+    () => [...snapshot.pinnedLinks].sort((a, b) => a.order - b.order || a.createdAt - b.createdAt),
+    [snapshot.pinnedLinks]
+  );
+
+  const pinnedGroups = React.useMemo(() => {
+    const byWs = new Map<string, PinnedLinkSnapshotItem[]>();
+    for (const p of sortedPinned) {
+      const key = p.workspaceId ?? "__general__";
+      const arr = byWs.get(key) ?? [];
+      arr.push(p);
+      byWs.set(key, arr);
+    }
+    const rows: Array<{ key: string; label: string; color: string; links: PinnedLinkSnapshotItem[] }> = [];
+    for (const ws of snapshot.workspaces) {
+      const links = byWs.get(ws.id);
+      if (links?.length) {
+        rows.push({ key: ws.id, label: t(ws.name, undefined, language), color: ws.color, links });
+      }
+    }
+    const general = byWs.get("__general__");
+    if (general?.length) {
+      rows.push({
+        key: "__general__",
+        label: t("pinnedGeneralGroup", undefined, language),
+        color: "#64748b",
+        links: general
+      });
+    }
+    return rows;
+  }, [sortedPinned, snapshot.workspaces, language]);
+
+  const openPinnedAdd = () => {
+    setPinUrl("");
+    setPinTitle("");
+    setPinWorkspaceId("");
+    setPinFavIcon("");
+    setPinnedEditor({ mode: "add" });
+  };
+
+  const openPinnedEdit = (link: PinnedLinkSnapshotItem) => {
+    setPinUrl(link.url);
+    setPinTitle(link.title);
+    setPinWorkspaceId(link.workspaceId ?? "");
+    setPinFavIcon(link.favIconUrl);
+    setPinnedEditor({ mode: "edit", id: link.id });
+    setOpenMenuPinnedId(null);
+  };
+
+  const fetchPinPreview = async () => {
+    const u = pinUrl.trim();
+    if (!u.startsWith("http")) {
+      return;
+    }
+    setPinFetchLoading(true);
+    try {
+      const res = await sendMessage<{ ok: boolean; title?: string; favIconUrl?: string }>({
+        type: "popup:fetchPinnedPreview",
+        url: u
+      });
+      if (res.ok) {
+        setPinTitle((prev) => (prev.trim() ? prev : res.title ?? prev));
+        if (res.favIconUrl) {
+          setPinFavIcon(res.favIconUrl);
+        }
+      }
+    } finally {
+      setPinFetchLoading(false);
+    }
+  };
+
+  const savePinnedForm = async () => {
+    const unlimited = await checkFeature("unlimitedPinnedLinks");
+    if (
+      pinnedEditor?.mode === "add" &&
+      !unlimited &&
+      snapshot.pinnedLinks.length >= PLAN_LIMITS.FREE.maxPinnedLinks
+    ) {
+      window.alert(t("pinnedUpgradeHint", [String(PLAN_LIMITS.FREE.maxPinnedLinks)], language));
+      return;
+    }
+    const url = pinUrl.trim();
+    if (!url.startsWith("http")) {
+      return;
+    }
+    if (pinnedEditor?.mode === "add") {
+      const res = await sendMessage<{ ok: boolean; code?: string }>({
+        type: "popup:addPinnedLink",
+        url,
+        title: pinTitle.trim() || url,
+        favIconUrl: pinFavIcon,
+        workspaceId: pinWorkspaceId || null
+      });
+      if (!res.ok && res.code === "pinned_limit") {
+        window.alert(t("pinnedUpgradeHint", [String(PLAN_LIMITS.FREE.maxPinnedLinks)], language));
+        return;
+      }
+    } else if (pinnedEditor?.mode === "edit") {
+      await sendMessage({
+        type: "popup:updatePinnedLink",
+        id: pinnedEditor.id,
+        url,
+        title: pinTitle.trim() || url,
+        favIconUrl: pinFavIcon,
+        workspaceId: pinWorkspaceId || null
+      });
+    }
+    setPinnedEditor(null);
+    await refreshSnapshot();
+  };
+
   const runDebugDump = async () => {
     await sendMessage({ type: "debug-dump" });
     await chrome.tabs.create({ url: `chrome://extensions/?id=${chrome.runtime.id}` });
@@ -490,9 +696,25 @@ function PopupApp() {
           </div>
         ) : null}
         <p className="mt-1 text-xs text-slate-400">{t("popupTotalTabs", [String(snapshot.totalTabs)], language)}</p>
+        <div className="mt-2 flex gap-6 border-b border-slate-800 text-xs">
+          <button
+            type="button"
+            className={`pb-2 ${mainTab === "tabs" ? "border-b-2 border-indigo-500 font-medium text-slate-100" : "text-slate-500 hover:text-slate-300"}`}
+            onClick={() => setMainTab("tabs")}
+          >
+            {t("popupTabTabs", undefined, language)}
+          </button>
+          <button
+            type="button"
+            className={`pb-2 ${mainTab === "pinned" ? "border-b-2 border-indigo-500 font-medium text-slate-100" : "text-slate-500 hover:text-slate-300"}`}
+            onClick={() => setMainTab("pinned")}
+          >
+            {t("popupTabPinned", undefined, language)}
+          </button>
+        </div>
       </header>
 
-      {snapshot.idleTabs.length > 0 ? (
+      {mainTab === "tabs" && snapshot.idleTabs.length > 0 ? (
         <section className="mt-2 rounded-lg border border-amber-600/40 bg-amber-900/15 p-2">
           <div className="flex items-center justify-between gap-2">
             <div className="flex min-w-0 flex-1 gap-2 overflow-x-auto py-0.5">
@@ -565,6 +787,8 @@ function PopupApp() {
         </section>
       ) : null}
 
+      {mainTab === "tabs" ? (
+        <>
       <section className="mt-3">
         {snapshot.workspaces.map((workspace) => {
           const expanded = expandedWorkspaceIds.includes(workspace.id);
@@ -626,7 +850,7 @@ function PopupApp() {
                 </button>
               </div>
               <div className={`overflow-hidden transition-all duration-200 ${expanded ? "max-h-80 opacity-100" : "max-h-0 opacity-0"}`}>
-                    <TabList tabs={workspace.tabs} language={language} onClose={handleCloseTab} closingTabIds={closingTabIds} />
+                    <TabList tabs={workspace.tabs} language={language} onClose={handleCloseTabRequest} closingTabIds={closingTabIds} />
               </div>
             </div>
           );
@@ -634,16 +858,28 @@ function PopupApp() {
       </section>
 
       <footer className="mt-2 rounded-lg border border-slate-800 bg-slate-900/70 p-2">
-        <button
-          type="button"
-          onClick={() => setExpandedUnassigned((value) => !value)}
-          className="flex w-full items-center justify-between text-left text-xs"
-        >
-          <span>{t("popupUnassigned", undefined, language)}</span>
-          <span className="text-slate-400">{snapshot.unassignedTabs.length}</span>
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setExpandedUnassigned((value) => !value)}
+            className="flex min-w-0 flex-1 items-center justify-between text-left text-xs"
+          >
+            <span>{t("popupUnassigned", undefined, language)}</span>
+            <span className="text-slate-400">{snapshot.unassignedTabs.length}</span>
+          </button>
+          {snapshot.unassignedTabs.length > 0 ? (
+            <button
+              type="button"
+              onClick={() => void closeAllUnassignedTabs()}
+              disabled={loadingKey === "unassigned-close-all"}
+              className="shrink-0 rounded border border-rose-700/50 px-2 py-1 text-[10px] text-rose-200 hover:bg-rose-950/40 disabled:opacity-50"
+            >
+              {loadingKey === "unassigned-close-all" ? t("loading", undefined, language) : t("popupUnassignedCloseAll", undefined, language)}
+            </button>
+          ) : null}
+        </div>
         <div className={`overflow-hidden transition-all duration-200 ${expandedUnassigned ? "max-h-80 opacity-100" : "max-h-0 opacity-0"}`}>
-          <TabList tabs={snapshot.unassignedTabs} language={language} onClose={handleCloseTab} closingTabIds={closingTabIds} />
+          <TabList tabs={snapshot.unassignedTabs} language={language} onClose={handleCloseTabRequest} closingTabIds={closingTabIds} />
         </div>
         <div className="mt-2 flex items-center justify-between">
           <button
@@ -664,6 +900,267 @@ function PopupApp() {
           </button>
         </div>
       </footer>
+        </>
+      ) : (
+        <section className="mt-3 flex flex-1 flex-col">
+          {pinnedGroups.length === 0 ? (
+            <p className="text-xs text-slate-500">{t("pinnedEmpty", undefined, language)}</p>
+          ) : (
+            <div className="max-h-[320px] space-y-4 overflow-y-auto pr-1">
+              {pinnedGroups.map((group) => (
+                <div key={group.key}>
+                  <div className="mb-1.5 flex items-center gap-2 text-xs font-medium text-slate-300">
+                    <span className="h-2 w-2 rounded-full" style={{ backgroundColor: group.color }} />
+                    {group.label}
+                  </div>
+                  <ul className="space-y-1">
+                    {group.links.map((link) => (
+                      <li
+                        key={link.id}
+                        className="flex items-center gap-2 rounded border border-slate-800 bg-slate-900/80 px-2 py-1.5 text-xs"
+                      >
+                        <button
+                          type="button"
+                          className="flex min-w-0 flex-1 items-center gap-2 text-left hover:text-indigo-300"
+                          onClick={() => void chrome.tabs.create({ url: link.url })}
+                        >
+                          <img src={link.favIconUrl || PLACEHOLDER_FAVICON} alt="" className="h-4 w-4 shrink-0 rounded-sm" />
+                          <span className="truncate">{link.title || link.domain}</span>
+                        </button>
+                        <button
+                          type="button"
+                          className="shrink-0 rounded border border-slate-700 px-1.5 py-0.5 text-[10px] hover:bg-slate-800"
+                          onClick={() => void chrome.tabs.create({ url: link.url })}
+                        >
+                          {t("pinnedOpen", undefined, language)}
+                        </button>
+                        <div className="relative shrink-0">
+                          <button
+                            type="button"
+                            className="rounded px-1 text-slate-400 hover:bg-slate-800 hover:text-slate-200"
+                            aria-label={t("pinnedMore", undefined, language)}
+                            onClick={() => setOpenMenuPinnedId((id) => (id === link.id ? null : link.id))}
+                          >
+                            ⋯
+                          </button>
+                          {openMenuPinnedId === link.id ? (
+                            <div className="absolute right-0 top-full z-40 mt-1 min-w-[120px] rounded border border-slate-700 bg-slate-900 py-1 shadow-lg">
+                              <button
+                                type="button"
+                                className="block w-full px-2 py-1 text-left text-[11px] hover:bg-slate-800"
+                                onClick={() => openPinnedEdit(link)}
+                              >
+                                {t("pinnedEdit", undefined, language)}
+                              </button>
+                              <div className="border-t border-slate-800 px-2 py-1 text-[10px] text-slate-500">
+                                {t("pinnedMove", undefined, language)}
+                              </div>
+                              <select
+                                className="mx-2 mb-1 w-[calc(100%-16px)] rounded border border-slate-700 bg-slate-950 px-1 py-0.5 text-[10px]"
+                                value={link.workspaceId ?? ""}
+                                onChange={(e) => {
+                                  const v = e.target.value || null;
+                                  void sendMessage({
+                                    type: "popup:updatePinnedLink",
+                                    id: link.id,
+                                    workspaceId: v
+                                  }).then(() => refreshSnapshot());
+                                  setOpenMenuPinnedId(null);
+                                }}
+                              >
+                                <option value="">{t("pinnedNone", undefined, language)}</option>
+                                {snapshot.workspaces.map((ws) => (
+                                  <option key={ws.id} value={ws.id}>
+                                    {t(ws.name, undefined, language)}
+                                  </option>
+                                ))}
+                              </select>
+                              <button
+                                type="button"
+                                className="block w-full px-2 py-1 text-left text-[11px] text-rose-300 hover:bg-slate-800"
+                                onClick={() => {
+                                  if (window.confirm(t("pinnedDelete", undefined, language))) {
+                                    void sendMessage({ type: "popup:removePinnedLink", id: link.id }).then(() => refreshSnapshot());
+                                  }
+                                  setOpenMenuPinnedId(null);
+                                }}
+                              >
+                                {t("pinnedDelete", undefined, language)}
+                              </button>
+                            </div>
+                          ) : null}
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ))}
+            </div>
+          )}
+          <button
+            type="button"
+            className="mt-3 w-full rounded border border-slate-700 py-2 text-xs hover:bg-slate-900"
+            onClick={() => openPinnedAdd()}
+          >
+            {t("pinnedAddLink", undefined, language)}
+          </button>
+        </section>
+      )}
+
+      {pinnedEditor ? (
+        <div
+          className="fixed inset-0 z-[35] flex items-center justify-center bg-black/55 p-3"
+          onClick={() => setPinnedEditor(null)}
+          role="presentation"
+        >
+          <div
+            className="w-full max-w-sm rounded-xl border border-slate-700 bg-slate-900 p-4 shadow-xl"
+            onClick={(e) => e.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+          >
+            <p className="text-sm font-semibold text-slate-100">
+              {pinnedEditor.mode === "add" ? t("pinnedAddLink", undefined, language) : t("pinnedEdit", undefined, language)}
+            </p>
+            <label className="mt-3 block text-[11px] text-slate-400">{t("pinnedUrl", undefined, language)}</label>
+            <input
+              value={pinUrl}
+              onChange={(e) => setPinUrl(e.target.value)}
+              onBlur={() => void fetchPinPreview()}
+              disabled={pinnedEditor.mode === "edit"}
+              className="mt-1 w-full rounded border border-slate-700 bg-slate-950 px-2 py-1.5 text-xs text-slate-100 disabled:opacity-60"
+            />
+            <label className="mt-2 block text-[11px] text-slate-400">{t("pinnedTitle", undefined, language)}</label>
+            <input
+              value={pinTitle}
+              onChange={(e) => setPinTitle(e.target.value)}
+              className="mt-1 w-full rounded border border-slate-700 bg-slate-950 px-2 py-1.5 text-xs text-slate-100"
+            />
+            <label className="mt-2 block text-[11px] text-slate-400">{t("pinnedWorkspace", undefined, language)}</label>
+            <select
+              value={pinWorkspaceId}
+              onChange={(e) => setPinWorkspaceId(e.target.value)}
+              className="mt-1 w-full rounded border border-slate-700 bg-slate-950 px-2 py-1.5 text-xs text-slate-100"
+            >
+              <option value="">{t("pinnedNone", undefined, language)}</option>
+              {snapshot.workspaces.map((ws) => (
+                <option key={ws.id} value={ws.id}>
+                  {t(ws.name, undefined, language)}
+                </option>
+              ))}
+            </select>
+            {pinFetchLoading ? <p className="mt-2 text-[10px] text-slate-500">{t("loading", undefined, language)}</p> : null}
+            <div className="mt-4 flex justify-end gap-2">
+              <button type="button" className="rounded border border-slate-600 px-3 py-1.5 text-xs" onClick={() => setPinnedEditor(null)}>
+                {t("pinnedCancel", undefined, language)}
+              </button>
+              <button type="button" className="rounded bg-indigo-500 px-3 py-1.5 text-xs text-white" onClick={() => void savePinnedForm()}>
+                {t("pinnedSave", undefined, language)}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {mainTab === "tabs" && snapshot.unassignedTabs.length > 0 && !unassignedBulkDismissed ? (
+        <div
+          className="fixed inset-0 z-[36] flex items-center justify-center bg-black/55 p-3"
+          onClick={() => setUnassignedBulkDismissed(true)}
+          role="presentation"
+        >
+          <div
+            className="w-full max-w-sm rounded-xl border border-slate-700 bg-slate-900 p-4 shadow-xl"
+            onClick={(e) => e.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+          >
+            <p className="text-sm font-semibold text-slate-100">
+              {t("popupUnassignedBulkTitle", [String(snapshot.unassignedTabs.length)], language)}
+            </p>
+            <p className="mt-2 text-xs text-slate-400">{t("popupUnassignedBulkHint", undefined, language)}</p>
+            <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:justify-end">
+              <button
+                type="button"
+                className="rounded border border-slate-600 px-3 py-1.5 text-xs text-slate-200 hover:bg-slate-800"
+                onClick={() => setUnassignedBulkDismissed(true)}
+              >
+                {t("popupUnassignedRemindLater", undefined, language)}
+              </button>
+              <button
+                type="button"
+                className="rounded bg-rose-600 px-3 py-1.5 text-xs text-white hover:bg-rose-500 disabled:opacity-50"
+                disabled={loadingKey === "unassigned-close-all"}
+                onClick={() => void closeAllUnassignedTabs()}
+              >
+                {loadingKey === "unassigned-close-all" ? t("loading", undefined, language) : t("popupUnassignedCloseAll", undefined, language)}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {lastWorkspaceTabPrompt ? (
+        <div
+          className="fixed inset-0 z-[35] flex items-center justify-center bg-black/55 p-3"
+          onClick={() => setLastWorkspaceTabPrompt(null)}
+          role="presentation"
+        >
+          <div
+            className="w-full max-w-sm rounded-xl border border-slate-700 bg-slate-900 p-4 shadow-xl"
+            onClick={(event) => event.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+          >
+            <p className="text-sm font-semibold text-slate-100">
+              {t("lastWorkspaceTabTitle", [lastWorkspaceTabPrompt.workspaceLabel], language)}
+            </p>
+            <p className="mt-2 text-xs text-slate-400">{t("lastWorkspaceTabHint", undefined, language)}</p>
+            <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:justify-end">
+              <button
+                type="button"
+                className="rounded border border-slate-600 px-3 py-1.5 text-xs text-slate-200 hover:bg-slate-800"
+                onClick={() => setLastWorkspaceTabPrompt(null)}
+              >
+                {t("lastWorkspaceTabCancel", undefined, language)}
+              </button>
+              <button
+                type="button"
+                className="rounded border border-slate-600 px-3 py-1.5 text-xs text-slate-200 hover:bg-slate-800"
+                onClick={() => {
+                  const payload = lastWorkspaceTabPrompt;
+                  setLastWorkspaceTabPrompt(null);
+                  void executeCloseTab(payload.tabId, "close");
+                }}
+              >
+                {t("lastWorkspaceTabCloseOnly", undefined, language)}
+              </button>
+              <button
+                type="button"
+                className="rounded bg-rose-600 px-3 py-1.5 text-xs text-white hover:bg-rose-500"
+                onClick={() => {
+                  const payload = lastWorkspaceTabPrompt;
+                  setLastWorkspaceTabPrompt(null);
+                  void executeCloseTab(payload.tabId, "delete_workspace", payload.workspaceId);
+                }}
+              >
+                {t("lastWorkspaceTabDeleteWorkspace", undefined, language)}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {MONETIZATION_ENABLED ? (
+        <div className="mt-3 border-t border-slate-800 pt-2 text-center">
+          <button
+            type="button"
+            onClick={() => void chrome.tabs.create({ url: chrome.runtime.getURL(t("popupProPageUrl", undefined, language)) })}
+            className="text-[11px] text-violet-300 hover:text-violet-200"
+          >
+            {t("popupProCta", undefined, language)}
+          </button>
+        </div>
+      ) : null}
 
       {editorMounted ? (
         <div

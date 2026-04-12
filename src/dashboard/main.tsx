@@ -1,14 +1,16 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
 import { DndContext, DragOverlay, PointerSensor, closestCenter, useDraggable, useDroppable, useSensor, useSensors } from "@dnd-kit/core";
-import { arrayMove, SortableContext, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
+import { arrayMove, rectSortingStrategy, SortableContext, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { FixedSizeList } from "react-window";
 import "../styles.css";
 import { getStoredLanguage, setStoredLanguage, type LanguageCode, t } from "../utils/i18n";
 import { workspaceTemplates } from "../utils/templates";
+import { UpgradePrompt } from "../components/UpgradePrompt";
+import { checkFeature, MONETIZATION_ENABLED, PLAN_LIMITS } from "../utils/plan";
 
-type ViewKey = "overview" | "unassigned" | "stashed" | "stats" | "workspace" | "settings";
+type ViewKey = "overview" | "unassigned" | "stashed" | "pinned" | "stats" | "workspace" | "settings" | "pro";
 
 interface TabItem {
   tabId: number;
@@ -18,6 +20,26 @@ interface TabItem {
   title: string;
   favIconUrl: string;
   lastAccessed: number;
+}
+
+interface PinnedLinkItem {
+  id: string;
+  url: string;
+  title: string;
+  favIconUrl: string;
+  workspaceId: string | null;
+  order: number;
+  createdAt: number;
+  domain: string;
+}
+
+interface PinnedStripItem {
+  id: string;
+  url: string;
+  title: string;
+  favIconUrl: string;
+  workspaceId: string | null;
+  domain: string;
 }
 
 interface WorkspaceItem {
@@ -32,6 +54,8 @@ interface WorkspaceItem {
   tabs: TabItem[];
   savedTabs: Array<{ url: string; title: string; favIconUrl: string; domain: string }>;
   recentFavicons: string[];
+  pinnedStrip: PinnedStripItem[];
+  pinnedStripTotal: number;
 }
 
 interface DashboardSnapshot {
@@ -41,6 +65,7 @@ interface DashboardSnapshot {
   workspaces: WorkspaceItem[];
   weekly: Array<{ day: string; counts: Array<{ workspaceId: string; value: number }> }>;
   usageRanking: Array<{ workspaceId: string; name: string; color: string; value: number }>;
+  pinnedLinks: PinnedLinkItem[];
 }
 
 const DEFAULT_DATA: DashboardSnapshot = {
@@ -49,8 +74,20 @@ const DEFAULT_DATA: DashboardSnapshot = {
   unassignedTabs: [],
   workspaces: [],
   weekly: [],
-  usageRanking: []
+  usageRanking: [],
+  pinnedLinks: []
 };
+
+const WORKSPACE_COLORS = [
+  "#6366f1",
+  "#8b5cf6",
+  "#ec4899",
+  "#ef4444",
+  "#f59e0b",
+  "#10b981",
+  "#06b6d4",
+  "#64748b"
+];
 
 async function sendMessage<T = unknown>(message: unknown): Promise<T> {
   return new Promise((resolve, reject) => {
@@ -126,17 +163,87 @@ function WorkspaceDropSlot({
   return <div ref={droppable.setNodeRef}>{children}</div>;
 }
 
+function SortablePinCard({
+  link,
+  language,
+  workspaceLabel,
+  onOpen,
+  onEdit,
+  onDelete
+}: {
+  link: PinnedLinkItem;
+  language: LanguageCode;
+  workspaceLabel: string;
+  onOpen: () => void;
+  onEdit: () => void;
+  onDelete: () => void;
+}) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: `pin:${link.id}` });
+  const style = { transform: CSS.Transform.toString(transform), transition };
+  return (
+    <div
+      ref={setNodeRef}
+      style={style}
+      {...attributes}
+      className={`group relative rounded-lg border border-slate-800 bg-slate-900 p-3 ${
+        isDragging ? "z-10 opacity-90 ring-2 ring-indigo-500/60" : ""
+      }`}
+    >
+      <div className="flex gap-2">
+        <button
+          type="button"
+          className="mt-0.5 shrink-0 cursor-grab touch-none text-slate-500 hover:text-slate-300"
+          {...listeners}
+          aria-label="Drag"
+        >
+          ⋮⋮
+        </button>
+        <button type="button" className="min-w-0 flex-1 text-left" onClick={onOpen}>
+          <div className="flex items-start gap-2">
+            <img
+              src={
+                link.favIconUrl ||
+                "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw=="
+              }
+              alt=""
+              className="h-5 w-5 shrink-0 rounded-sm"
+            />
+            <div className="min-w-0">
+              <p className="truncate text-sm font-medium text-slate-100">{link.title}</p>
+              <p className="truncate text-xs text-slate-500">{link.domain}</p>
+              <span className="mt-1 inline-block rounded bg-slate-800 px-1.5 py-0.5 text-[10px] text-slate-400">{workspaceLabel}</span>
+            </div>
+          </div>
+        </button>
+      </div>
+      <div className="mt-2 hidden flex-wrap gap-2 group-hover:flex">
+        <button type="button" className="rounded border border-slate-700 px-2 py-0.5 text-xs" onClick={onOpen}>
+          {t("pinnedOpen", undefined, language)}
+        </button>
+        <button type="button" className="rounded border border-slate-700 px-2 py-0.5 text-xs" onClick={onEdit}>
+          {t("pinnedEdit", undefined, language)}
+        </button>
+        <button type="button" className="rounded border border-rose-800 px-2 py-0.5 text-xs text-rose-300" onClick={onDelete}>
+          {t("pinnedDelete", undefined, language)}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function TabCard({
   tab,
   language,
   onClose,
   onMove,
+  onGoToTab,
   isClosing
 }: {
   tab: TabItem;
   language: LanguageCode;
   onClose: (tabId: number) => void;
   onMove: (tabId: number) => void;
+  onGoToTab?: (tabId: number) => void;
   isClosing: boolean;
 }) {
   const { attributes, listeners, setNodeRef, transform } = useDraggable({ id: `tab:${tab.tabId}`, data: { tabId: tab.tabId } });
@@ -146,19 +253,47 @@ function TabCard({
     <div
       ref={setNodeRef}
       style={style}
-      {...listeners}
-      {...attributes}
       className={`group rounded-lg border border-slate-800 bg-slate-900 p-3 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg hover:shadow-slate-950/40 ${
         isClosing ? "translate-y-1 opacity-0" : "opacity-100"
       }`}
     >
       <div className="flex items-start gap-2">
-        <img src={tab.favIconUrl || "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw=="} alt="" className="h-4 w-4 rounded-sm" />
-        <div className="min-w-0 flex-1">
-          <p className="truncate text-sm text-slate-100">{tab.title || t("popupUnknownTitle", undefined, language)}</p>
-          <p className="truncate text-xs text-slate-400">{tab.domain}</p>
-          <p className="mt-1 text-[11px] text-slate-500">{formatAgo(tab.lastAccessed, language)}</p>
-        </div>
+        <button
+          type="button"
+          className="mt-0.5 shrink-0 cursor-grab touch-none text-slate-500 hover:text-slate-300"
+          {...listeners}
+          {...attributes}
+          aria-label="Drag"
+        >
+          ⋮⋮
+        </button>
+        {onGoToTab ? (
+          <button
+            type="button"
+            className="min-w-0 flex-1 rounded text-left outline-none ring-indigo-500/0 hover:ring-2 focus-visible:ring-2"
+            onClick={() => onGoToTab(tab.tabId)}
+          >
+            <img
+              src={tab.favIconUrl || "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw=="}
+              alt=""
+              className="mb-1 h-4 w-4 rounded-sm"
+            />
+            <p className="truncate text-sm text-slate-100">{tab.title || t("popupUnknownTitle", undefined, language)}</p>
+            <p className="truncate text-xs text-indigo-300/90 hover:underline">{tab.domain}</p>
+            <p className="mt-1 text-[11px] text-slate-500">{formatAgo(tab.lastAccessed, language)}</p>
+          </button>
+        ) : (
+          <div className="min-w-0 flex-1">
+            <img
+              src={tab.favIconUrl || "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw=="}
+              alt=""
+              className="mb-1 h-4 w-4 rounded-sm"
+            />
+            <p className="truncate text-sm text-slate-100">{tab.title || t("popupUnknownTitle", undefined, language)}</p>
+            <p className="truncate text-xs text-slate-400">{tab.domain}</p>
+            <p className="mt-1 text-[11px] text-slate-500">{formatAgo(tab.lastAccessed, language)}</p>
+          </div>
+        )}
         <div className="hidden flex-col gap-1 group-hover:flex">
           <button
             type="button"
@@ -197,9 +332,15 @@ function DashboardApp() {
   const [view, setView] = React.useState<ViewKey>("overview");
   const [activeWorkspaceId, setActiveWorkspaceId] = React.useState<string | null>(null);
   const [expandedStashed, setExpandedStashed] = React.useState<string[]>([]);
+  const [overviewExpandedWorkspaceIds, setOverviewExpandedWorkspaceIds] = React.useState<string[]>([]);
   const [draggingWorkspaceId, setDraggingWorkspaceId] = React.useState<string | null>(null);
   const [loadingKey, setLoadingKey] = React.useState<string | null>(null);
   const [closingTabIds, setClosingTabIds] = React.useState<Set<number>>(new Set());
+  const [lastWorkspaceTabPrompt, setLastWorkspaceTabPrompt] = React.useState<{
+    tabId: number;
+    workspaceId: string;
+    workspaceLabel: string;
+  } | null>(null);
   const [showOnboarding, setShowOnboarding] = React.useState(false);
   const [onboardingStep, setOnboardingStep] = React.useState(1);
   const [onboardingTemplates, setOnboardingTemplates] = React.useState<string[]>([]);
@@ -215,10 +356,30 @@ function DashboardApp() {
   const [ignoredDomains, setIgnoredDomains] = React.useState<string[]>([]);
   const [importPreview, setImportPreview] = React.useState<string>("");
   const [feedbackLoading, setFeedbackLoading] = React.useState(false);
+  const [pinnedEditor, setPinnedEditor] = React.useState<null | { mode: "add" } | { mode: "edit"; id: string }>(null);
+  const [pinUrl, setPinUrl] = React.useState("");
+  const [pinTitle, setPinTitle] = React.useState("");
+  const [pinWorkspaceId, setPinWorkspaceId] = React.useState("");
+  const [pinFavIcon, setPinFavIcon] = React.useState("");
+  const [pinFetchLoading, setPinFetchLoading] = React.useState(false);
+  const [hasStatisticsAccess, setHasStatisticsAccess] = React.useState(true);
+  const [workspaceEditorOpen, setWorkspaceEditorOpen] = React.useState(false);
+  const [editingWorkspaceId, setEditingWorkspaceId] = React.useState<string | null>(null);
+  const [workspaceNameInput, setWorkspaceNameInput] = React.useState("");
+  const [workspaceColorInput, setWorkspaceColorInput] = React.useState(WORKSPACE_COLORS[0]);
+  const [workspacePatterns, setWorkspacePatterns] = React.useState<string[]>([]);
+  const [patternInput, setPatternInput] = React.useState("");
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }));
 
   React.useEffect(() => {
+    void checkFeature("statistics").then(setHasStatisticsAccess);
+  }, []);
+
+  React.useEffect(() => {
     void (async () => {
+      if (new URLSearchParams(window.location.search).get("section") === "pro") {
+        setView("pro");
+      }
       const lang = await getStoredLanguage();
       setLanguage(lang);
       const storageValues = await chrome.storage.local.get(["flox.settings", "flox.onboardingCompleted"]);
@@ -256,18 +417,213 @@ function DashboardApp() {
     const response = await sendMessage<{ ok: boolean; data: DashboardSnapshot }>({ type: "dashboard:getData" });
     if (response.ok) {
       setData(response.data);
-      if (!activeWorkspaceId && response.data.workspaces.length > 0) {
-        setActiveWorkspaceId(response.data.workspaces[0].id);
-      }
+      const ids = new Set(response.data.workspaces.map((w) => w.id));
+      setActiveWorkspaceId((current) => {
+        if (current && ids.has(current)) {
+          return current;
+        }
+        return response.data.workspaces[0]?.id ?? null;
+      });
     }
   };
 
   const selectedWorkspace = data.workspaces.find((item) => item.id === activeWorkspaceId) ?? null;
 
-  const handleCloseSingleTab = async (tabId: number) => {
+  const sortedPinnedDisplay = React.useMemo(
+    () => [...data.pinnedLinks].sort((a, b) => a.order - b.order || a.createdAt - b.createdAt),
+    [data.pinnedLinks]
+  );
+
+  const pinnedSortIds = React.useMemo(
+    () => sortedPinnedDisplay.map((p) => `pin:${p.id}`),
+    [sortedPinnedDisplay]
+  );
+
+  const getPinnedWorkspaceLabel = (link: PinnedLinkItem) => {
+    if (!link.workspaceId) {
+      return t("pinnedGeneralGroup", undefined, language);
+    }
+    const ws = data.workspaces.find((w) => w.id === link.workspaceId);
+    return ws ? t(ws.name, undefined, language) : t("pinnedGeneralGroup", undefined, language);
+  };
+
+  const openPinnedAddDashboard = () => {
+    setPinUrl("");
+    setPinTitle("");
+    setPinWorkspaceId("");
+    setPinFavIcon("");
+    setPinnedEditor({ mode: "add" });
+  };
+
+  const openPinnedEditDashboard = (link: PinnedLinkItem) => {
+    setPinUrl(link.url);
+    setPinTitle(link.title);
+    setPinWorkspaceId(link.workspaceId ?? "");
+    setPinFavIcon(link.favIconUrl);
+    setPinnedEditor({ mode: "edit", id: link.id });
+  };
+
+  const fetchPinPreviewDashboard = async () => {
+    const u = pinUrl.trim();
+    if (!u.startsWith("http")) {
+      return;
+    }
+    setPinFetchLoading(true);
+    try {
+      const res = await sendMessage<{ ok: boolean; title?: string; favIconUrl?: string }>({
+        type: "dashboard:fetchPinnedPreview",
+        url: u
+      });
+      if (res.ok) {
+        setPinTitle((prev) => (prev.trim() ? prev : res.title ?? prev));
+        if (res.favIconUrl) {
+          setPinFavIcon(res.favIconUrl);
+        }
+      }
+    } finally {
+      setPinFetchLoading(false);
+    }
+  };
+
+  const savePinnedFormDashboard = async () => {
+    const unlimited = await checkFeature("unlimitedPinnedLinks");
+    if (
+      pinnedEditor?.mode === "add" &&
+      !unlimited &&
+      data.pinnedLinks.length >= PLAN_LIMITS.FREE.maxPinnedLinks
+    ) {
+      window.alert(t("pinnedUpgradeHint", [String(PLAN_LIMITS.FREE.maxPinnedLinks)], language));
+      return;
+    }
+    const url = pinUrl.trim();
+    if (!url.startsWith("http")) {
+      return;
+    }
+    if (pinnedEditor?.mode === "add") {
+      const res = await sendMessage<{ ok: boolean; code?: string }>({
+        type: "dashboard:addPinnedLink",
+        url,
+        title: pinTitle.trim() || url,
+        favIconUrl: pinFavIcon,
+        workspaceId: pinWorkspaceId || null
+      });
+      if (!res.ok && res.code === "pinned_limit") {
+        window.alert(t("pinnedUpgradeHint", [String(PLAN_LIMITS.FREE.maxPinnedLinks)], language));
+        return;
+      }
+    } else if (pinnedEditor?.mode === "edit") {
+      await sendMessage({
+        type: "dashboard:updatePinnedLink",
+        id: pinnedEditor.id,
+        url,
+        title: pinTitle.trim() || url,
+        favIconUrl: pinFavIcon,
+        workspaceId: pinWorkspaceId || null
+      });
+    }
+    setPinnedEditor(null);
+    await loadData();
+  };
+
+  const addWorkspacePatternTag = () => {
+    const value = patternInput.trim();
+    if (!value || workspacePatterns.includes(value)) {
+      return;
+    }
+    setWorkspacePatterns((current) => [...current, value]);
+    setPatternInput("");
+  };
+
+  const openNewWorkspace = async () => {
+    const canCreateUnlimited = await checkFeature("unlimitedWorkspaces");
+    if (!canCreateUnlimited && data.workspaces.length >= PLAN_LIMITS.FREE.maxWorkspaces) {
+      window.alert(t("workspaceLimitReached", [String(PLAN_LIMITS.FREE.maxWorkspaces)], language));
+      return;
+    }
+    setEditingWorkspaceId(null);
+    setWorkspaceNameInput("");
+    setWorkspaceColorInput(WORKSPACE_COLORS[0]);
+    setWorkspacePatterns([]);
+    setPatternInput("");
+    setWorkspaceEditorOpen(true);
+  };
+
+  const openEditWorkspace = (workspace: WorkspaceItem) => {
+    setEditingWorkspaceId(workspace.id);
+    setWorkspaceNameInput(t(workspace.name, undefined, language));
+    setWorkspaceColorInput(workspace.color);
+    setWorkspacePatterns(workspace.urlPatterns ?? []);
+    setPatternInput("");
+    setWorkspaceEditorOpen(true);
+  };
+
+  const closeWorkspaceEditor = () => {
+    setWorkspaceEditorOpen(false);
+    setEditingWorkspaceId(null);
+  };
+
+  const saveWorkspaceFormDashboard = async () => {
+    const name = workspaceNameInput.trim() || t("popupUntitledTask", undefined, language);
+    const canCreateUnlimited = await checkFeature("unlimitedWorkspaces");
+    if (!editingWorkspaceId && !canCreateUnlimited && data.workspaces.length >= PLAN_LIMITS.FREE.maxWorkspaces) {
+      window.alert(t("workspaceLimitReached", [String(PLAN_LIMITS.FREE.maxWorkspaces)], language));
+      return;
+    }
+    if (editingWorkspaceId) {
+      await sendMessage({
+        type: "dashboard:updateWorkspace",
+        workspaceId: editingWorkspaceId,
+        name,
+        color: workspaceColorInput,
+        urlPatterns: workspacePatterns
+      });
+    } else {
+      await sendMessage({
+        type: "dashboard:addWorkspace",
+        name,
+        color: workspaceColorInput,
+        urlPatterns: workspacePatterns
+      });
+    }
+    await sendMessage({ type: "dashboard:rescanTabs" });
+    await loadData();
+    closeWorkspaceEditor();
+  };
+
+  const deleteWorkspaceFromEditor = async () => {
+    const id = editingWorkspaceId;
+    if (!id) {
+      return;
+    }
+    if (!window.confirm(t("popupConfirmDeleteWorkspace", undefined, language))) {
+      return;
+    }
+    await sendMessage({ type: "dashboard:deleteWorkspace", workspaceId: id });
+    await sendMessage({ type: "dashboard:rescanTabs" });
+    await loadData();
+    closeWorkspaceEditor();
+    if (activeWorkspaceId === id) {
+      setView("overview");
+    }
+  };
+
+  const executeCloseSingleTab = async (tabId: number, mode: "close" | "delete_workspace", workspaceId?: string) => {
     setClosingTabIds((current) => new Set(current).add(tabId));
     setData((current) => {
       const strip = (tabs: TabItem[]) => tabs.filter((tab) => tab.tabId !== tabId);
+      if (mode === "delete_workspace" && workspaceId) {
+        return {
+          ...current,
+          totalTabs: Math.max(0, current.totalTabs - 1),
+          unassignedTabs: strip(current.unassignedTabs),
+          workspaces: current.workspaces
+            .filter((w) => w.id !== workspaceId)
+            .map((workspace) => {
+              const tabs = strip(workspace.tabs);
+              return { ...workspace, tabs, tabCount: tabs.length };
+            })
+        };
+      }
       return {
         ...current,
         totalTabs: Math.max(0, current.totalTabs - 1),
@@ -280,7 +636,11 @@ function DashboardApp() {
     });
     await new Promise((resolve) => setTimeout(resolve, 150));
     try {
-      await sendMessage({ type: "dashboard:closeTab", tabId });
+      if (mode === "delete_workspace" && workspaceId) {
+        await sendMessage({ type: "dashboard:closeWorkspaceTab", tabId, workspaceId, deleteWorkspace: true });
+      } else {
+        await sendMessage({ type: "dashboard:closeTab", tabId });
+      }
       await loadData();
     } finally {
       setClosingTabIds((current) => {
@@ -291,12 +651,64 @@ function DashboardApp() {
     }
   };
 
+  const handleCloseTabRequest = async (tabId: number) => {
+    if (view === "workspace" && selectedWorkspace && selectedWorkspace.tabs.some((tab) => tab.tabId === tabId)) {
+      const res = await sendMessage<{ ok: boolean; count?: number }>({
+        type: "flox:countWorkspaceOpenTabs",
+        workspaceId: selectedWorkspace.id,
+        excludeTabId: tabId
+      });
+      const otherOpen =
+        res.ok && typeof res.count === "number"
+          ? res.count
+          : selectedWorkspace.tabs.filter((t) => t.tabId !== tabId).length;
+      if (otherOpen === 0) {
+        setLastWorkspaceTabPrompt({
+          tabId,
+          workspaceId: selectedWorkspace.id,
+          workspaceLabel: t(selectedWorkspace.name, undefined, language)
+        });
+        return;
+      }
+    }
+    void executeCloseSingleTab(tabId, "close");
+  };
+
   const handleDragEnd = async (event: { active: { id: string }; over: { id: string } | null }) => {
     if (!event.over) {
       setDraggingWorkspaceId(null);
       return;
     }
-    const overId = event.over.id;
+    const overId = String(event.over.id);
+    const activeId = String(event.active.id);
+    if (activeId.startsWith("pin:")) {
+      if (overId.startsWith("pin:")) {
+        const oldIndex = pinnedSortIds.indexOf(activeId);
+        const newIndex = pinnedSortIds.indexOf(overId);
+        if (oldIndex >= 0 && newIndex >= 0 && oldIndex !== newIndex) {
+          const next = arrayMove(pinnedSortIds, oldIndex, newIndex).map((s) => s.replace("pin:", ""));
+          await sendMessage({ type: "dashboard:reorderPinnedLinks", orderedIds: next });
+          await loadData();
+        }
+        setDraggingWorkspaceId(null);
+        return;
+      }
+      if (overId.startsWith("droppable:")) {
+        const raw = overId.replace("droppable:", "");
+        const workspaceId = raw === "unassigned" ? null : raw;
+        const linkId = activeId.replace("pin:", "");
+        await sendMessage({
+          type: "dashboard:updatePinnedLink",
+          id: linkId,
+          workspaceId
+        });
+        await loadData();
+        setDraggingWorkspaceId(null);
+        return;
+      }
+      setDraggingWorkspaceId(null);
+      return;
+    }
     if (String(event.active.id).startsWith("tab:")) {
       const tabId = Number(String(event.active.id).replace("tab:", ""));
       const target = String(overId);
@@ -325,6 +737,16 @@ function DashboardApp() {
   };
 
   const maxCount = Math.max(1, ...data.workspaces.map((w) => w.tabCount));
+
+  const focusLiveTab = (tabId: number) => {
+    void sendMessage({ type: "dashboard:focusTab", tabId });
+  };
+
+  const toggleOverviewWorkspaceCard = (workspaceId: string) => {
+    setOverviewExpandedWorkspaceIds((current) =>
+      current.includes(workspaceId) ? current.filter((id) => id !== workspaceId) : [...current, workspaceId]
+    );
+  };
 
   const viewDroppable = useDroppable({ id: "droppable:unassigned" });
 
@@ -447,11 +869,23 @@ function DashboardApp() {
             <button type="button" onClick={() => setView("overview")} className={`w-full rounded px-2 py-1 text-left ${view === "overview" ? "bg-slate-700" : "hover:bg-slate-800"}`}>{t("dashboardNavOverview", undefined, language)}</button>
             <button type="button" onClick={() => setView("unassigned")} className={`w-full rounded px-2 py-1 text-left ${view === "unassigned" ? "bg-slate-700" : "hover:bg-slate-800"}`}>{t("dashboardNavUnassigned", undefined, language)}</button>
             <button type="button" onClick={() => setView("stashed")} className={`w-full rounded px-2 py-1 text-left ${view === "stashed" ? "bg-slate-700" : "hover:bg-slate-800"}`}>{t("dashboardNavStashed", undefined, language)}</button>
+            <button type="button" onClick={() => setView("stats")} className={`w-full rounded px-2 py-1 text-left ${view === "stats" ? "bg-slate-700" : "hover:bg-slate-800"}`}>{t("dashboardNavStats", undefined, language)}</button>
+            <button type="button" onClick={() => setView("pinned")} className={`w-full rounded px-2 py-1 text-left ${view === "pinned" ? "bg-slate-700" : "hover:bg-slate-800"}`}>📌 {t("dashboardNavPinned", undefined, language)}</button>
             <button type="button" onClick={() => setView("settings")} className={`w-full rounded px-2 py-1 text-left ${view === "settings" ? "bg-slate-700" : "hover:bg-slate-800"}`}>⚙️ {t("settingsTitle", undefined, language)}</button>
           </div>
 
           <div className="mt-4 flex-1 overflow-y-auto">
-            <h2 className="mb-2 text-xs uppercase tracking-wide text-slate-500">{t("workspaceListTitle", undefined, language)}</h2>
+            <div className="mb-2 flex items-start justify-between gap-2">
+              <h2 className="text-xs uppercase tracking-wide text-slate-500">{t("workspaceListTitle", undefined, language)}</h2>
+            </div>
+            <button
+              type="button"
+              onClick={() => void openNewWorkspace()}
+              className="tooltip-trigger mb-2 w-full rounded border border-slate-700 bg-slate-950 px-2 py-1.5 text-left text-xs hover:bg-slate-800"
+              data-tooltip={t("tooltipNewTask", undefined, language)}
+            >
+              {t("popupNewTask", undefined, language)}
+            </button>
             <SortableContext items={data.workspaces.map((item) => item.id)} strategy={verticalListSortingStrategy}>
               <div className="space-y-1">
                 {data.workspaces.map((workspace) => (
@@ -488,12 +922,36 @@ function DashboardApp() {
           >
             ⚙️ {t("settingsTitle", undefined, language)}
           </button>
+          {MONETIZATION_ENABLED ? (
+            <button
+              type="button"
+              className="mt-3 w-full rounded-lg border border-violet-500/40 bg-violet-950/40 px-3 py-2 text-left text-xs font-medium text-violet-100 hover:bg-violet-950/60"
+              onClick={() => {
+                setView("pro");
+                const next = new URL(window.location.href);
+                next.searchParams.set("section", "pro");
+                window.history.replaceState({}, "", next.pathname + next.search);
+              }}
+            >
+              ✨ {t("dashboardUpgradePro", undefined, language)}
+            </button>
+          ) : null}
         </aside>
 
         <section className="flex-1 overflow-y-auto p-6">
           {view === "overview" ? (
             <div>
-              <h2 className="text-2xl font-semibold">{t("dashboardNavOverview", undefined, language)}</h2>
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <h2 className="text-2xl font-semibold">{t("dashboardNavOverview", undefined, language)}</h2>
+                <button
+                  type="button"
+                  onClick={() => void openNewWorkspace()}
+                  className="tooltip-trigger rounded border border-slate-700 bg-indigo-600 px-3 py-1.5 text-sm text-white hover:bg-indigo-500"
+                  data-tooltip={t("tooltipNewTask", undefined, language)}
+                >
+                  {t("popupNewTask", undefined, language)}
+                </button>
+              </div>
               <div className="mt-4 space-y-2">
                 {data.workspaces.map((workspace) => (
                   <div key={`bar-${workspace.id}`}>
@@ -510,20 +968,168 @@ function DashboardApp() {
               <div className="mt-6 grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
                 {data.workspaces.length === 0 ? (
                   <div className="rounded-lg border border-slate-800 bg-slate-900 p-4 text-sm text-slate-300">
-                    {t("dashboardNoWorkspace", undefined, language)}
+                    <p>{t("dashboardNoWorkspace", undefined, language)}</p>
+                    <button
+                      type="button"
+                      onClick={() => void openNewWorkspace()}
+                      className="tooltip-trigger mt-3 rounded bg-indigo-500 px-3 py-1.5 text-xs text-white hover:bg-indigo-400"
+                      data-tooltip={t("tooltipNewTask", undefined, language)}
+                    >
+                      {t("popupNewTask", undefined, language)}
+                    </button>
                   </div>
-                ) : data.workspaces.map((workspace) => (
-                  <div key={`card-${workspace.id}`} className="rounded-lg border border-slate-800 bg-slate-900 p-3">
-                    <div className="flex items-center justify-between">
-                      <p className="font-medium">{t(workspace.name, undefined, language)}</p>
-                      <span className="text-xs text-slate-400">{workspace.tabCount}</span>
+                ) : data.workspaces.map((workspace) => {
+                  const overviewOpen = overviewExpandedWorkspaceIds.includes(workspace.id);
+                  return (
+                    <div key={`card-${workspace.id}`} className="rounded-lg border border-slate-800 bg-slate-900 p-3">
+                      <button
+                        type="button"
+                        onClick={() => toggleOverviewWorkspaceCard(workspace.id)}
+                        className="flex w-full items-center justify-between gap-2 text-left"
+                      >
+                        <span className="flex items-center gap-2 font-medium">
+                          <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: workspace.color }} />
+                          {t(workspace.name, undefined, language)}
+                        </span>
+                        <span className="flex shrink-0 items-center gap-2 text-xs text-slate-400">
+                          <span>{workspace.tabCount}</span>
+                          <span className="text-slate-500">{overviewOpen ? "▼" : "▶"}</span>
+                        </span>
+                      </button>
+                      <div className="mt-3 flex gap-2">
+                        {workspace.recentFavicons.length === 0 ? (
+                          <span className="text-xs text-slate-500">{t("popupNoTabs", undefined, language)}</span>
+                        ) : (
+                          workspace.recentFavicons.map((icon, index) => (
+                            <img key={`${workspace.id}-ico-${index}`} src={icon} alt="" className="h-5 w-5 rounded" />
+                          ))
+                        )}
+                      </div>
+                      {overviewOpen ? (
+                        <div className="mt-3 space-y-2 border-t border-slate-800 pt-3">
+                          {workspace.tabs.length === 0 ? (
+                            <p className="text-xs text-slate-500">{t("popupNoTabs", undefined, language)}</p>
+                          ) : (
+                            workspace.tabs.map((tab) => (
+                              <div
+                                key={`ov-tab-${workspace.id}-${tab.tabId}`}
+                                className="flex flex-col gap-2 rounded border border-slate-800/80 bg-slate-950/50 p-2 sm:flex-row sm:items-center"
+                              >
+                                <button
+                                  type="button"
+                                  onClick={() => focusLiveTab(tab.tabId)}
+                                  className="min-w-0 flex-1 text-left"
+                                >
+                                  <p className="truncate text-sm text-slate-100">{tab.title || t("popupUnknownTitle", undefined, language)}</p>
+                                  <p className="truncate text-xs text-indigo-300/90 hover:underline">{tab.url || tab.domain}</p>
+                                </button>
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <select
+                                    className="max-w-[160px] rounded border border-slate-700 bg-slate-950 px-2 py-1 text-xs"
+                                    defaultValue=""
+                                    onChange={(event) => {
+                                      const el = event.currentTarget;
+                                      const v = el.value;
+                                      el.value = "";
+                                      if (!v) {
+                                        return;
+                                      }
+                                      void sendMessage({
+                                        type: "dashboard:assignTab",
+                                        tabId: tab.tabId,
+                                        workspaceId: v === "__unassigned__" ? null : v
+                                      }).then(loadData);
+                                    }}
+                                  >
+                                    <option value="">{t("dashboardReassignTo", undefined, language)}</option>
+                                    <option value="__unassigned__">{t("dashboardNavUnassigned", undefined, language)}</option>
+                                    {data.workspaces
+                                      .filter((ws) => ws.id !== workspace.id)
+                                      .map((ws) => (
+                                        <option key={`ov-move-${tab.tabId}-${ws.id}`} value={ws.id}>
+                                          {t(ws.name, undefined, language)}
+                                        </option>
+                                      ))}
+                                  </select>
+                                  <button
+                                    type="button"
+                                    className="rounded border border-slate-600 px-2 py-1 text-xs text-slate-300 hover:bg-slate-800"
+                                    onClick={() =>
+                                      void sendMessage({ type: "dashboard:assignTab", tabId: tab.tabId, workspaceId: null }).then(loadData)
+                                    }
+                                  >
+                                    {t("dashboardRemoveFromWorkspace", undefined, language)}
+                                  </button>
+                                </div>
+                              </div>
+                            ))
+                          )}
+                        </div>
+                      ) : null}
                     </div>
-                    <div className="mt-3 flex gap-2">
-                      {workspace.recentFavicons.length === 0 ? <span className="text-xs text-slate-500">{t("popupNoTabs", undefined, language)}</span> : workspace.recentFavicons.map((icon, index) => <img key={`${workspace.id}-ico-${index}`} src={icon} alt="" className="h-5 w-5 rounded" />)}
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
+            </div>
+          ) : null}
+
+          {view === "pinned" ? (
+            <div>
+              <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+                <h2 className="text-2xl font-semibold">{t("pinnedPageTitle", undefined, language)}</h2>
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-sm text-slate-400">{t("pinnedTotal", [String(data.pinnedLinks.length)], language)}</span>
+                  <button
+                    type="button"
+                    className="rounded bg-indigo-500 px-3 py-1 text-sm text-white hover:bg-indigo-400"
+                    onClick={() => openPinnedAddDashboard()}
+                  >
+                    {t("pinnedAddLink", undefined, language)}
+                  </button>
+                </div>
+              </div>
+              <div className="mb-6 flex flex-wrap gap-2">
+                {data.workspaces.map((ws) => (
+                  <button
+                    key={`open-pins-${ws.id}`}
+                    type="button"
+                    className="rounded border border-slate-700 px-2 py-1 text-xs hover:bg-slate-800"
+                    onClick={() => void sendMessage({ type: "dashboard:openPinnedWorkspace", workspaceId: ws.id }).then(loadData)}
+                  >
+                    {t("pinnedOpenAll", undefined, language)} · {t(ws.name, undefined, language)}
+                  </button>
+                ))}
+                <button
+                  type="button"
+                  className="rounded border border-slate-700 px-2 py-1 text-xs hover:bg-slate-800"
+                  onClick={() => void sendMessage({ type: "dashboard:openPinnedWorkspace", workspaceId: null }).then(loadData)}
+                >
+                  {t("pinnedOpenAll", undefined, language)} · {t("pinnedGeneralGroup", undefined, language)}
+                </button>
+              </div>
+              {sortedPinnedDisplay.length === 0 ? (
+                <p className="text-slate-400">{t("pinnedEmpty", undefined, language)}</p>
+              ) : (
+                <SortableContext items={pinnedSortIds} strategy={rectSortingStrategy}>
+                  <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
+                    {sortedPinnedDisplay.map((link) => (
+                      <SortablePinCard
+                        key={link.id}
+                        link={link}
+                        language={language}
+                        workspaceLabel={getPinnedWorkspaceLabel(link)}
+                        onOpen={() => void chrome.tabs.create({ url: link.url })}
+                        onEdit={() => openPinnedEditDashboard(link)}
+                        onDelete={() => {
+                          if (window.confirm(t("pinnedDelete", undefined, language))) {
+                            void sendMessage({ type: "dashboard:removePinnedLink", id: link.id }).then(loadData);
+                          }
+                        }}
+                      />
+                    ))}
+                  </div>
+                </SortableContext>
+              )}
             </div>
           ) : null}
 
@@ -535,7 +1141,14 @@ function DashboardApp() {
                   <h2 className="text-2xl font-semibold">{t(selectedWorkspace.name, undefined, language)}</h2>
                   <span className="text-sm text-slate-400">{selectedWorkspace.tabCount}</span>
                 </div>
-                <div className="flex gap-2">
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={() => openEditWorkspace(selectedWorkspace)}
+                    className="rounded border border-slate-700 px-2 py-1 text-xs hover:bg-slate-800"
+                  >
+                    {t("popupEditTaskTitle", undefined, language)}
+                  </button>
                   <button className="tooltip-trigger rounded border border-slate-700 px-2 py-1 text-xs" data-tooltip={t("tooltipExpandList", undefined, language)}>{t("popupExpand", undefined, language)}</button>
                   <button
                     type="button"
@@ -564,6 +1177,35 @@ function DashboardApp() {
                   </button>
                 </div>
               </div>
+              {selectedWorkspace.pinnedStripTotal > 0 ? (
+                <div className="mb-4 border-t border-slate-800 pt-4">
+                  <div className="mb-2 flex items-center justify-between text-xs uppercase tracking-wide text-slate-500">
+                    <span>📌 {t("popupTabPinned", undefined, language)}</span>
+                    {selectedWorkspace.pinnedStripTotal > 5 ? (
+                      <button type="button" className="normal-case text-indigo-400 hover:text-indigo-300" onClick={() => setView("pinned")}>
+                        {t("pinnedViewAll", undefined, language)}
+                      </button>
+                    ) : null}
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    {selectedWorkspace.pinnedStrip.map((p) => (
+                      <button
+                        key={p.id}
+                        type="button"
+                        onClick={() => void chrome.tabs.create({ url: p.url })}
+                        className="flex max-w-[200px] items-center gap-2 rounded border border-slate-800 bg-slate-900/80 px-2 py-1 text-left text-xs hover:border-slate-600"
+                      >
+                        <img
+                          src={p.favIconUrl || "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw=="}
+                          alt=""
+                          className="h-4 w-4 shrink-0 rounded-sm"
+                        />
+                        <span className="truncate">{p.title || p.domain}</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
               {selectedWorkspace.tabs.length > 100 ? (
                 <FixedSizeList
                   height={640}
@@ -577,7 +1219,7 @@ function DashboardApp() {
                       <TabCard
                         tab={rows[index]}
                         language={language}
-                        onClose={(id) => void handleCloseSingleTab(id)}
+                        onClose={(id) => void handleCloseTabRequest(id)}
                         onMove={(id) => {
                           const target = window.prompt(t("dashboardMoveTo", undefined, language));
                           const workspace = data.workspaces.find((item) => t(item.name, undefined, language) === target || item.id === target);
@@ -585,6 +1227,7 @@ function DashboardApp() {
                             void sendMessage({ type: "dashboard:assignTab", tabId: id, workspaceId: workspace.id }).then(loadData);
                           }
                         }}
+                        onGoToTab={(id) => focusLiveTab(id)}
                         isClosing={closingTabIds.has(rows[index].tabId)}
                       />
                     </div>
@@ -602,7 +1245,7 @@ function DashboardApp() {
                       key={tab.tabId}
                       tab={tab}
                       language={language}
-                      onClose={(id) => void handleCloseSingleTab(id)}
+                      onClose={(id) => void handleCloseTabRequest(id)}
                       onMove={(id) => {
                         const target = window.prompt(t("dashboardMoveTo", undefined, language));
                         const workspace = data.workspaces.find((item) => t(item.name, undefined, language) === target || item.id === target);
@@ -610,6 +1253,7 @@ function DashboardApp() {
                           void sendMessage({ type: "dashboard:assignTab", tabId: id, workspaceId: workspace.id }).then(loadData);
                         }
                       }}
+                      onGoToTab={(id) => focusLiveTab(id)}
                       isClosing={closingTabIds.has(tab.tabId)}
                     />
                   ))}
@@ -627,19 +1271,36 @@ function DashboardApp() {
                 <div className="mt-4 space-y-2">
                   {data.unassignedTabs.map((tab) => (
                     <div key={`ua-${tab.tabId}`} className="flex items-center gap-2 rounded border border-slate-800 bg-slate-900 p-2">
-                      <img src={tab.favIconUrl || "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw=="} alt="" className="h-4 w-4 rounded-sm" />
-                      <div className="min-w-0 flex-1">
-                        <p className="truncate text-sm">{tab.title}</p>
-                        <p className="truncate text-xs text-slate-400">{tab.domain}</p>
-                      </div>
+                      <button
+                        type="button"
+                        onClick={() => focusLiveTab(tab.tabId)}
+                        title={t("dashboardSwitchToTab", undefined, language)}
+                        className="flex min-w-0 flex-1 items-start gap-2 rounded text-left outline-none ring-indigo-500/0 hover:bg-slate-800/80 focus-visible:ring-2"
+                      >
+                        <img src={tab.favIconUrl || "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw=="} alt="" className="mt-0.5 h-4 w-4 shrink-0 rounded-sm" />
+                        <span className="min-w-0">
+                          <span className="block truncate text-sm text-slate-100">{tab.title || t("popupUnknownTitle", undefined, language)}</span>
+                          <span className="block truncate text-xs text-indigo-300/90">{tab.url || tab.domain}</span>
+                        </span>
+                      </button>
                       <select
                         className="rounded border border-slate-700 bg-slate-950 px-2 py-1 text-xs"
-                        onChange={(event) => {
-                          if (!event.target.value) return;
-                          void sendMessage({ type: "dashboard:assignTab", tabId: tab.tabId, workspaceId: event.target.value }).then(loadData);
-                        }}
                         defaultValue=""
+                        onChange={(event) => {
+                          const el = event.currentTarget;
+                          const v = el.value;
+                          if (!v) {
+                            return;
+                          }
+                          el.value = "";
+                          if (v === "__close__") {
+                            void handleCloseTabRequest(tab.tabId);
+                            return;
+                          }
+                          void sendMessage({ type: "dashboard:assignTab", tabId: tab.tabId, workspaceId: v }).then(loadData);
+                        }}
                       >
+                        <option value="__close__">{t("popupClose", undefined, language)}</option>
                         <option value="">{t("dashboardMoveTo", undefined, language)}</option>
                         {data.workspaces.map((workspace) => (
                           <option key={`move-${workspace.id}`} value={workspace.id}>{t(workspace.name, undefined, language)}</option>
@@ -709,9 +1370,13 @@ function DashboardApp() {
           ) : null}
 
           {view === "stats" ? (
-            <div className="relative">
+            <div className="relative min-h-[320px]">
               <h2 className="text-2xl font-semibold">{t("dashboardNavStats", undefined, language)}</h2>
-              <div className="mt-4 rounded border border-slate-800 bg-slate-900/60 p-4">
+              <div
+                className={`relative mt-4 rounded border border-slate-800 bg-slate-900/60 p-4 ${
+                  MONETIZATION_ENABLED && !hasStatisticsAccess ? "pointer-events-none select-none" : ""
+                }`}
+              >
                 <div className="h-44 rounded border border-slate-800 p-2">
                   <div className="flex h-full items-end gap-2">
                     {data.weekly.map((day) => {
@@ -734,7 +1399,30 @@ function DashboardApp() {
                     </div>
                   ))}
                 </div>
+                {MONETIZATION_ENABLED && !hasStatisticsAccess ? (
+                  <div className="absolute inset-0 z-10 flex items-start justify-center rounded-lg bg-slate-950/55 pt-16 backdrop-blur-sm">
+                    <div className="mx-4 w-full max-w-md">
+                      <UpgradePrompt feature="statistics" language={language} />
+                    </div>
+                  </div>
+                ) : null}
               </div>
+            </div>
+          ) : null}
+
+          {view === "pro" ? (
+            <div className="max-w-lg space-y-4">
+              <h2 className="text-2xl font-semibold">{t("dashboardProPageTitle", undefined, language)}</h2>
+              <p className="text-sm text-slate-400">{t("dashboardComingSoon", undefined, language)}</p>
+              {MONETIZATION_ENABLED ? (
+                <button
+                  type="button"
+                  className="rounded-lg bg-violet-600 px-4 py-2 text-sm text-white hover:bg-violet-500"
+                  onClick={() => void chrome.tabs.create({ url: t("proLearnMoreUrl", undefined, language) })}
+                >
+                  {t("learnFloxPro", undefined, language)}
+                </button>
+              ) : null}
             </div>
           ) : null}
 
@@ -870,7 +1558,42 @@ function DashboardApp() {
                 <div>
                   <h3 className="text-2xl font-semibold">{t("onboardingWelcomeTitle", undefined, language)}</h3>
                   <p className="mt-2 text-slate-300">{t("onboardingWelcomeDesc", undefined, language)}</p>
-                  <div className="mt-4 rounded border border-slate-800 bg-slate-950 p-4 text-center text-slate-400">{t("onboardingIllustrationPlaceholder", undefined, language)}</div>
+                  <div
+                    className="mt-6 flex justify-center rounded-xl border border-slate-800 bg-gradient-to-b from-slate-950 via-slate-900/80 to-slate-950 px-4 py-6"
+                    role="img"
+                    aria-label={t("onboardingWelcomeDesc", undefined, language)}
+                  >
+                    <svg viewBox="0 0 360 200" className="h-44 w-full max-w-md text-slate-500" aria-hidden="true">
+                      <defs>
+                        <linearGradient id="onb-win" x1="0%" y1="0%" x2="0%" y2="100%">
+                          <stop offset="0%" stopColor="#1e293b" />
+                          <stop offset="100%" stopColor="#0f172a" />
+                        </linearGradient>
+                      </defs>
+                      <rect x="8" y="12" width="344" height="176" rx="14" fill="url(#onb-win)" stroke="currentColor" strokeOpacity="0.35" />
+                      <rect x="24" y="28" width="312" height="28" rx="6" fill="#0f172a" stroke="currentColor" strokeOpacity="0.25" />
+                      <circle cx="40" cy="42" r="4" fill="#64748b" />
+                      <circle cx="56" cy="42" r="4" fill="#64748b" />
+                      <circle cx="72" cy="42" r="4" fill="#64748b" />
+                      <rect x="96" y="34" width="72" height="16" rx="4" fill="#334155" />
+                      <rect x="176" y="34" width="64" height="16" rx="4" fill="#334155" />
+                      <rect x="248" y="34" width="72" height="16" rx="4" fill="#334155" />
+                      <rect x="24" y="72" width="152" height="100" rx="10" fill="#020617" stroke="#6366f1" strokeOpacity="0.55" strokeWidth="1.5" />
+                      <text x="36" y="94" fill="#94a3b8" fontSize="11" fontFamily="system-ui, sans-serif">
+                        {t("templateWorkName", undefined, language)}
+                      </text>
+                      <rect x="36" y="104" width="128" height="10" rx="2" fill="#1e293b" />
+                      <rect x="36" y="120" width="100" height="10" rx="2" fill="#1e293b" />
+                      <rect x="36" y="136" width="116" height="10" rx="2" fill="#1e293b" />
+                      <circle cx="44" cy="108" r="3" fill="#6366f1" />
+                      <circle cx="44" cy="124" r="3" fill="#8b5cf6" />
+                      <circle cx="44" cy="140" r="3" fill="#06b6d4" />
+                      <rect x="192" y="72" width="144" height="100" rx="10" fill="#020617" stroke="currentColor" strokeOpacity="0.2" />
+                      <rect x="204" y="104" width="120" height="8" rx="2" fill="#1e293b" />
+                      <rect x="204" y="120" width="88" height="8" rx="2" fill="#1e293b" />
+                      <rect x="204" y="136" width="104" height="8" rx="2" fill="#1e293b" />
+                    </svg>
+                  </div>
                 </div>
               ) : null}
               {onboardingStep === 2 ? (
@@ -999,6 +1722,201 @@ function DashboardApp() {
                     {t("onboardingStartUsing", undefined, language)}
                   </button>
                 )}
+              </div>
+            </div>
+          </div>
+        ) : null}
+
+        {workspaceEditorOpen ? (
+          <div
+            className="fixed inset-0 z-[60] flex items-center justify-center bg-black/55 p-4"
+            onClick={closeWorkspaceEditor}
+            role="presentation"
+          >
+            <div
+              className="w-full max-w-md rounded-xl border border-slate-700 bg-slate-900 p-5 shadow-xl"
+              onClick={(e) => e.stopPropagation()}
+              role="dialog"
+              aria-modal="true"
+            >
+              <p className="text-base font-semibold text-slate-100">
+                {editingWorkspaceId ? t("popupEditTaskTitle", undefined, language) : t("popupCreateTaskTitle", undefined, language)}
+              </p>
+              <label className="mt-3 block text-xs text-slate-400">{t("popupTaskNameLabel", undefined, language)}</label>
+              <input
+                value={workspaceNameInput}
+                onChange={(e) => setWorkspaceNameInput(e.target.value)}
+                className="mt-1 w-full rounded border border-slate-700 bg-slate-950 px-2 py-2 text-sm text-slate-100"
+              />
+              <p className="mt-3 text-xs text-slate-400">{t("popupTaskColorLabel", undefined, language)}</p>
+              <div className="mt-1 flex flex-wrap gap-2">
+                {WORKSPACE_COLORS.map((color) => (
+                  <button
+                    key={color}
+                    type="button"
+                    onClick={() => setWorkspaceColorInput(color)}
+                    className={`h-7 w-7 rounded-full border-2 ${workspaceColorInput === color ? "border-white" : "border-slate-700"}`}
+                    style={{ backgroundColor: color }}
+                  />
+                ))}
+              </div>
+              <p className="mt-3 text-xs text-slate-400">{t("popupTaskRulesLabel", undefined, language)}</p>
+              <div className="mt-1 flex flex-wrap gap-1 rounded border border-slate-700 bg-slate-950 p-2">
+                {workspacePatterns.map((pattern) => (
+                  <span key={pattern} className="inline-flex items-center gap-1 rounded bg-slate-800 px-2 py-0.5 text-xs">
+                    {pattern}
+                    <button
+                      type="button"
+                      onClick={() => setWorkspacePatterns((current) => current.filter((item) => item !== pattern))}
+                      className="text-slate-400 hover:text-slate-200"
+                    >
+                      ×
+                    </button>
+                  </span>
+                ))}
+                <input
+                  value={patternInput}
+                  onChange={(e) => setPatternInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      addWorkspacePatternTag();
+                    }
+                  }}
+                  className="min-w-[120px] flex-1 bg-transparent text-sm outline-none"
+                  placeholder={t("popupRuleInputPlaceholder", undefined, language)}
+                />
+              </div>
+              <div className="mt-5 flex items-center justify-between gap-2">
+                <div>
+                  {editingWorkspaceId ? (
+                    <button
+                      type="button"
+                      onClick={() => void deleteWorkspaceFromEditor()}
+                      className="rounded border border-rose-700 px-3 py-2 text-sm text-rose-300 hover:bg-rose-950/40"
+                    >
+                      {t("deleteWorkspace", undefined, language)}
+                    </button>
+                  ) : null}
+                </div>
+                <div className="flex gap-2">
+                  <button type="button" className="rounded border border-slate-600 px-3 py-2 text-sm" onClick={closeWorkspaceEditor}>
+                    {t("popupCancel", undefined, language)}
+                  </button>
+                  <button
+                    type="button"
+                    className="rounded bg-indigo-500 px-3 py-2 text-sm text-white hover:bg-indigo-400"
+                    onClick={() => void saveWorkspaceFormDashboard()}
+                  >
+                    {t("popupSave", undefined, language)}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        ) : null}
+
+        {pinnedEditor ? (
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/55 p-4"
+            onClick={() => setPinnedEditor(null)}
+            role="presentation"
+          >
+            <div
+              className="w-full max-w-md rounded-xl border border-slate-700 bg-slate-900 p-5 shadow-xl"
+              onClick={(e) => e.stopPropagation()}
+              role="dialog"
+              aria-modal="true"
+            >
+              <p className="text-base font-semibold text-slate-100">
+                {pinnedEditor.mode === "add" ? t("pinnedAddLink", undefined, language) : t("pinnedEdit", undefined, language)}
+              </p>
+              <label className="mt-3 block text-xs text-slate-400">{t("pinnedUrl", undefined, language)}</label>
+              <input
+                value={pinUrl}
+                onChange={(e) => setPinUrl(e.target.value)}
+                onBlur={() => void fetchPinPreviewDashboard()}
+                disabled={pinnedEditor.mode === "edit"}
+                className="mt-1 w-full rounded border border-slate-700 bg-slate-950 px-2 py-2 text-sm text-slate-100 disabled:opacity-60"
+              />
+              <label className="mt-3 block text-xs text-slate-400">{t("pinnedTitle", undefined, language)}</label>
+              <input
+                value={pinTitle}
+                onChange={(e) => setPinTitle(e.target.value)}
+                className="mt-1 w-full rounded border border-slate-700 bg-slate-950 px-2 py-2 text-sm text-slate-100"
+              />
+              <label className="mt-3 block text-xs text-slate-400">{t("pinnedWorkspace", undefined, language)}</label>
+              <select
+                value={pinWorkspaceId}
+                onChange={(e) => setPinWorkspaceId(e.target.value)}
+                className="mt-1 w-full rounded border border-slate-700 bg-slate-950 px-2 py-2 text-sm text-slate-100"
+              >
+                <option value="">{t("pinnedNone", undefined, language)}</option>
+                {data.workspaces.map((ws) => (
+                  <option key={ws.id} value={ws.id}>
+                    {t(ws.name, undefined, language)}
+                  </option>
+                ))}
+              </select>
+              {pinFetchLoading ? <p className="mt-2 text-xs text-slate-500">{t("loading", undefined, language)}</p> : null}
+              <div className="mt-5 flex justify-end gap-2">
+                <button type="button" className="rounded border border-slate-600 px-3 py-2 text-sm" onClick={() => setPinnedEditor(null)}>
+                  {t("pinnedCancel", undefined, language)}
+                </button>
+                <button type="button" className="rounded bg-indigo-500 px-3 py-2 text-sm text-white" onClick={() => void savePinnedFormDashboard()}>
+                  {t("pinnedSave", undefined, language)}
+                </button>
+              </div>
+            </div>
+          </div>
+        ) : null}
+
+        {lastWorkspaceTabPrompt ? (
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/55 p-4"
+            onClick={() => setLastWorkspaceTabPrompt(null)}
+            role="presentation"
+          >
+            <div
+              className="w-full max-w-md rounded-xl border border-slate-700 bg-slate-900 p-5 shadow-xl"
+              onClick={(event) => event.stopPropagation()}
+              role="dialog"
+              aria-modal="true"
+            >
+              <p className="text-base font-semibold text-slate-100">
+                {t("lastWorkspaceTabTitle", [lastWorkspaceTabPrompt.workspaceLabel], language)}
+              </p>
+              <p className="mt-2 text-sm text-slate-400">{t("lastWorkspaceTabHint", undefined, language)}</p>
+              <div className="mt-5 flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:justify-end">
+                <button
+                  type="button"
+                  className="rounded border border-slate-600 px-3 py-2 text-sm text-slate-200 hover:bg-slate-800"
+                  onClick={() => setLastWorkspaceTabPrompt(null)}
+                >
+                  {t("lastWorkspaceTabCancel", undefined, language)}
+                </button>
+                <button
+                  type="button"
+                  className="rounded border border-slate-600 px-3 py-2 text-sm text-slate-200 hover:bg-slate-800"
+                  onClick={() => {
+                    const payload = lastWorkspaceTabPrompt;
+                    setLastWorkspaceTabPrompt(null);
+                    void executeCloseSingleTab(payload.tabId, "close");
+                  }}
+                >
+                  {t("lastWorkspaceTabCloseOnly", undefined, language)}
+                </button>
+                <button
+                  type="button"
+                  className="rounded bg-rose-600 px-3 py-2 text-sm text-white hover:bg-rose-500"
+                  onClick={() => {
+                    const payload = lastWorkspaceTabPrompt;
+                    setLastWorkspaceTabPrompt(null);
+                    void executeCloseSingleTab(payload.tabId, "delete_workspace", payload.workspaceId);
+                  }}
+                >
+                  {t("lastWorkspaceTabDeleteWorkspace", undefined, language)}
+                </button>
               </div>
             </div>
           </div>
