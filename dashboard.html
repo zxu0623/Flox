@@ -4,9 +4,12 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Flox Dashboard</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   </head>
-  <body class="bg-slate-950">
-    <div id="root"></div>
+  <body class="min-h-screen bg-zinc-50 text-zinc-900 dark:bg-zinc-950 dark:text-zinc-100">
+    <script src="theme-boot.js"></script>
+    <div id="root" class="min-h-full min-h-screen"></div>
     <script type="module" src="/src/dashboard/main.tsx"></script>
   </body>
 </html>

@@ -1,10 +1,76 @@
+@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@500;600;700&family=Plus+Jakarta+Sans:ital,wght@0,300;0,400;0,500;0,600;0,700;1,400&display=swap');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
+html {
+  color-scheme: light;
+}
+
+:root {
+  --color-bg: #fafafa;
+  --color-surface: #f4f4f5;
+  --color-raised: #e4e4e7;
+  --color-border: #d4d4d8;
+  --color-text: #18181b;
+  --color-muted: #71717a;
+  --color-dim: #a1a1aa;
+  --color-accent: #d97706;
+}
+
+html.dark {
+  color-scheme: dark;
+  --color-bg: #09090b;
+  --color-surface: #18181b;
+  --color-raised: #27272a;
+  --color-border: #27272a;
+  --color-text: #f4f4f5;
+  --color-muted: #a1a1aa;
+  --color-dim: #52525b;
+  --color-accent: #fbbf24;
+}
+
 body {
   margin: 0;
-  font-family: Inter, ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+  font-family: 'Plus Jakarta Sans', ui-sans-serif, system-ui, -apple-system, sans-serif;
+  background-color: var(--color-bg);
+  color: var(--color-text);
+  -webkit-font-smoothing: antialiased;
+  letter-spacing: -0.01em;
+}
+
+/* Scrollbar styling */
+::-webkit-scrollbar {
+  width: 4px;
+  height: 4px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #d4d4d8;
+  border-radius: 2px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #a1a1aa;
+}
+
+html.dark ::-webkit-scrollbar-thumb {
+  background: #3f3f46;
+}
+html.dark ::-webkit-scrollbar-thumb:hover {
+  background: #52525b;
+}
+
+/* Selection */
+::selection {
+  background: #fbbf2440;
+  color: #92400e;
+}
+
+html.dark ::selection {
+  color: #fbbf24;
 }
 
 .tooltip-trigger {
@@ -18,13 +84,34 @@ body {
   bottom: calc(100% + 6px);
   transform: translateX(-50%);
   padding: 4px 8px;
-  border-radius: 6px;
-  background: rgba(15, 23, 42, 0.95);
-  border: 1px solid rgba(100, 116, 139, 0.4);
-  color: #e2e8f0;
+  border-radius: 5px;
+  background: #ffffff;
+  border: 1px solid #d4d4d8;
+  color: #3f3f46;
   font-size: 11px;
   line-height: 1.2;
   white-space: nowrap;
   pointer-events: none;
   z-index: 50;
+  font-family: 'Plus Jakarta Sans', sans-serif;
+  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.08);
+}
+
+html.dark .tooltip-trigger:hover::after {
+  background: #18181b;
+  border-color: #3f3f46;
+  color: #d4d4d8;
+  box-shadow: none;
+}
+
+/* Subtle grid background for popup header */
+.fx-grid-bg {
+  background-image: linear-gradient(rgba(0, 0, 0, 0.04) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(0, 0, 0, 0.04) 1px, transparent 1px);
+  background-size: 20px 20px;
+}
+
+html.dark .fx-grid-bg {
+  background-image: linear-gradient(rgba(255, 255, 255, 0.02) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.02) 1px, transparent 1px);
 }

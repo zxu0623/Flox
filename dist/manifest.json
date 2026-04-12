@@ -52,7 +52,7 @@
   "content_scripts": [
     {
       "js": [
-        "assets/assign-prompt.tsx-loader-Qh-RY3eW.js"
+        "assets/assign-prompt.tsx-loader-Bun7nhiD.js"
       ],
       "matches": [
         "<all_urls>"
@@ -61,7 +61,7 @@
     },
     {
       "js": [
-        "assets/duplicate-tab-prompt.tsx-loader-CmeVb1Jp.js"
+        "assets/duplicate-tab-prompt.tsx-loader-8D96_mlZ.js"
       ],
       "matches": [
         "<all_urls>"
@@ -79,10 +79,11 @@
         "<all_urls>"
       ],
       "resources": [
-        "assets/i18n-BX_bCTpQ.js",
+        "assets/i18n-D_xCZkMC.js",
         "assets/plan-BPRw_ehD.js",
-        "assets/assign-prompt.tsx-DMsKx35_.js",
-        "assets/duplicate-tab-prompt.tsx-B5jpbqhO.js"
+        "assets/theme-DEiV2PB1.js",
+        "assets/assign-prompt.tsx-B6To8Tca.js",
+        "assets/duplicate-tab-prompt.tsx-dto31nq1.js"
       ],
       "use_dynamic_url": false
     }

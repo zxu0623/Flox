@@ -2,25 +2,31 @@ import { getStoredLanguage, t } from "../utils/i18n";
 import { checkFeature, PLAN_LIMITS } from "../utils/plan";
 import {
   addPinnedLink,
+  addSkipUrlRule,
   addWorkspace,
   deleteWorkspace,
   getPinnedLinks,
   getSavedSessions,
+  getSkipUrlRules,
   getTabRecords,
   getWorkspaces,
   removePinnedLink,
+  removeSkipUrlRule,
   removeTabRecord,
   reorderPinnedLinks,
   restoreTabs,
   saveTabs,
   setSavedSessions,
   setTabRecords,
+  type SkipUrlRule,
   type TabRecord,
   updatePinnedLink,
+  updateSkipUrlRule,
   updateWorkspace,
   updateTabRecord,
   type Workspace
 } from "../utils/storage";
+import { getStoredUiTheme } from "../utils/theme";
 
 const ONBOARDING_PENDING_KEY = "flox.onboardingPending";
 const ONBOARDING_COMPLETED_KEY = "flox.onboardingCompleted";
@@ -134,6 +140,19 @@ async function getRuntimeSettings(): Promise<RuntimeSettings> {
   };
 }
 
+async function setRuntimeSettingsPartial(updates: Partial<RuntimeSettings>): Promise<void> {
+  const current = await getRuntimeSettings();
+  const next = { ...current, ...updates };
+  await chrome.storage.local.set({
+    [SETTINGS_KEY]: {
+      idleThresholdMinutes: next.idleThresholdMinutes,
+      tabWarningThreshold: next.tabWarningThreshold,
+      autoCreateTabGroup: next.autoCreateTabGroup,
+      autoAssignPrompt: next.autoAssignPrompt
+    }
+  });
+}
+
 async function getIgnoredDomains(): Promise<string[]> {
   const result = await chrome.storage.local.get(IGNORED_DOMAINS_KEY);
   return (result[IGNORED_DOMAINS_KEY] as string[] | undefined) ?? [];
@@ -155,13 +174,15 @@ async function notifyAssignPrompt(
     suggestedWorkspaceId?: string;
   }
 ): Promise<void> {
+  const uiTheme = await getStoredUiTheme();
   for (let attempt = 0; attempt < 6; attempt += 1) {
     const response = await chrome.tabs
       .sendMessage(tabId, {
         type: "flox:showAssignPrompt",
         domain: payload.domain,
         workspaces: payload.workspaces,
-        suggestedWorkspaceId: payload.suggestedWorkspaceId ?? null
+        suggestedWorkspaceId: payload.suggestedWorkspaceId ?? null,
+        uiTheme
       })
       .catch(() => null);
 
@@ -460,6 +481,21 @@ function matchWorkspaceByUrl(url: string, workspaces: Workspace[]): Workspace | 
   return null;
 }
 
+function matchSkipUrlRule(tabUrl: string, rules: SkipUrlRule[]): SkipUrlRule | null {
+  const lower = tabUrl.trim().toLowerCase();
+  const ordered = [...rules].sort((a, b) => a.createdAt - b.createdAt);
+  for (const rule of ordered) {
+    const p = rule.urlPattern.trim().toLowerCase();
+    if (!p) {
+      continue;
+    }
+    if (lower.includes(p)) {
+      return rule;
+    }
+  }
+  return null;
+}
+
 function matchWorkspaceByHistory(
   url: string,
   workspaces: Workspace[],
@@ -564,6 +600,17 @@ async function assignAndPersistTab(
   }
   const workspaces = await getWorkspaces();
   const records = await getTabRecords();
+  const skipRules = await getSkipUrlRules();
+  const canConsiderSkip =
+    Boolean(tab.url) &&
+    tab.url!.startsWith("http") &&
+    !tab.url!.startsWith("chrome://") &&
+    !tab.url!.startsWith("edge://");
+  const skipMatch = canConsiderSkip ? matchSkipUrlRule(tab.url!, skipRules) : null;
+  const skipForcedWorkspace =
+    skipMatch?.workspaceId && workspaces.some((w) => w.id === skipMatch.workspaceId) ? skipMatch.workspaceId : null;
+  const silentSkipListAssign = Boolean(skipMatch && skipForcedWorkspace);
+
   const existing = records.find((item) => item.tabId === tab.id);
   const matchedByPattern = tab.url ? matchWorkspaceByUrl(tab.url, workspaces) : null;
 
@@ -572,7 +619,9 @@ async function assignAndPersistTab(
     priorWorkspaceId !== null && workspaces.some((w) => w.id === priorWorkspaceId);
 
   let nextWorkspaceId: string | null = null;
-  if (priorWorkspaceStillValid) {
+  if (skipForcedWorkspace) {
+    nextWorkspaceId = skipForcedWorkspace;
+  } else if (priorWorkspaceStillValid) {
     if (matchedByPattern) {
       nextWorkspaceId = matchedByPattern.id;
     } else {
@@ -583,6 +632,7 @@ async function assignAndPersistTab(
   }
 
   if (
+    !skipForcedWorkspace &&
     nextWorkspaceId === null &&
     tab.url &&
     tab.url.startsWith("http") &&
@@ -605,7 +655,8 @@ async function assignAndPersistTab(
     assignedWorkspace &&
     settings.autoCreateTabGroup &&
     assignmentChanged &&
-    !options?.skipConsolidatePrompt
+    !options?.skipConsolidatePrompt &&
+    !silentSkipListAssign
   ) {
     const consolidate = await getWorkspaceConsolidationTarget(tab.id, nextWorkspaceId, tab.windowId);
     if (consolidate) {
@@ -660,6 +711,11 @@ async function assignAndPersistTab(
   }
 
   if (options?.skipAssignPrompt) {
+    await syncBadgeFromRecords();
+    return;
+  }
+
+  if (skipMatch) {
     await syncBadgeFromRecords();
     return;
   }
@@ -728,7 +784,23 @@ async function reconcileTabRecords(logPrefix?: string): Promise<TabRecord[]> {
 }
 
 async function scanAndSyncAllTabs(): Promise<void> {
-  const records = await reconcileTabRecords();
+  await reconcileTabRecords();
+  const skipRules = await getSkipUrlRules();
+  const liveTabs = await chrome.tabs.query({});
+  for (const tab of liveTabs) {
+    if (typeof tab.id !== "number") {
+      continue;
+    }
+    const url = tab.url ?? "";
+    if (!url.startsWith("http") || url.startsWith("chrome://") || url.startsWith("edge://")) {
+      continue;
+    }
+    if (!matchSkipUrlRule(url, skipRules)) {
+      continue;
+    }
+    await assignAndPersistTab(tab, { skipAssignPrompt: true, skipConsolidatePrompt: true });
+  }
+  const records = await getTabRecords();
   const workspaces = await getWorkspaces();
   const settings = await getRuntimeSettings();
   for (const record of records) {
@@ -745,12 +817,13 @@ async function scanAndSyncAllTabs(): Promise<void> {
 }
 
 async function buildSnapshot() {
-  const [tabs, workspaces, records, savedSessions, pinnedLinks] = await Promise.all([
+  const [tabs, workspaces, records, savedSessions, pinnedLinks, skipUrlRules] = await Promise.all([
     chrome.tabs.query({}),
     getWorkspaces(),
     getTabRecords(),
     getSavedSessions(),
-    getPinnedLinks()
+    getPinnedLinks(),
+    getSkipUrlRules()
   ]);
   const settings = await getRuntimeSettings();
   const idleThresholdMs =
@@ -837,6 +910,12 @@ async function buildSnapshot() {
       order: link.order,
       createdAt: link.createdAt,
       domain: getDomain(link.url)
+    })),
+    skipUrlRules: skipUrlRules.map((rule) => ({
+      id: rule.id,
+      urlPattern: rule.urlPattern,
+      workspaceId: rule.workspaceId,
+      createdAt: rule.createdAt
     }))
   };
 }
@@ -1050,6 +1129,30 @@ async function focusLiveTab(tabId: number): Promise<void> {
   }
   await chrome.windows.update(tab.windowId, { focused: true }).catch(() => undefined);
   await chrome.tabs.update(tabId, { active: true });
+}
+
+/** If a tab with the same URL (normalized) is open, focus it; otherwise create. Returns whether an existing tab was focused. */
+async function focusOrOpenUrl(url: string, active: boolean): Promise<boolean> {
+  if (!url.startsWith("http")) {
+    await chrome.tabs.create({ url, active });
+    return false;
+  }
+  const key = normalizePinnedKey(url);
+  const tabs = await chrome.tabs.query({});
+  for (const tab of tabs) {
+    const u = tab.url;
+    if (!u || !u.startsWith("http")) {
+      continue;
+    }
+    const tabKey = normalizePinnedKey(u);
+    const match = key ? tabKey === key : u === url;
+    if (match && typeof tab.id === "number") {
+      await focusLiveTab(tab.id);
+      return true;
+    }
+  }
+  await chrome.tabs.create({ url, active });
+  return false;
 }
 
 async function restoreSingleSavedTab(workspaceId: string, url: string): Promise<void> {
@@ -1290,6 +1393,75 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
           sendResponse({ ok: true });
           break;
         }
+        case "dashboard:addSkipUrlRule": {
+          const raw = typeof message.urlPattern === "string" ? message.urlPattern.trim() : "";
+          if (!raw) {
+            sendResponse({ ok: false });
+            break;
+          }
+          let ws: string | null = null;
+          if (message.workspaceId !== undefined && message.workspaceId !== null && message.workspaceId !== "") {
+            const id = String(message.workspaceId);
+            const wss = await getWorkspaces();
+            if (!wss.some((w) => w.id === id)) {
+              sendResponse({ ok: false });
+              break;
+            }
+            ws = id;
+          }
+          await addSkipUrlRule({ urlPattern: raw, workspaceId: ws });
+          await scanAndSyncAllTabs();
+          sendResponse({ ok: true });
+          break;
+        }
+        case "dashboard:updateSkipUrlRule": {
+          const ruleId = typeof message.id === "string" ? message.id : "";
+          if (!ruleId) {
+            sendResponse({ ok: false });
+            break;
+          }
+          const updates: Partial<{ urlPattern: string; workspaceId: string | null }> = {};
+          if (typeof message.urlPattern === "string") {
+            const trimmed = message.urlPattern.trim();
+            if (!trimmed) {
+              sendResponse({ ok: false });
+              break;
+            }
+            updates.urlPattern = trimmed;
+          }
+          if ("workspaceId" in message) {
+            if (message.workspaceId === null || message.workspaceId === undefined || message.workspaceId === "") {
+              updates.workspaceId = null;
+            } else {
+              const id = String(message.workspaceId);
+              const wss = await getWorkspaces();
+              if (!wss.some((w) => w.id === id)) {
+                sendResponse({ ok: false });
+                break;
+              }
+              updates.workspaceId = id;
+            }
+          }
+          try {
+            await updateSkipUrlRule(ruleId, updates);
+            await scanAndSyncAllTabs();
+            sendResponse({ ok: true });
+          } catch {
+            sendResponse({ ok: false });
+          }
+          break;
+        }
+        case "dashboard:removeSkipUrlRule": {
+          const ruleId = typeof message.id === "string" ? message.id : "";
+          if (!ruleId) {
+            sendResponse({ ok: false });
+            break;
+          }
+          await removeSkipUrlRule(ruleId);
+          await scanAndSyncAllTabs();
+          sendResponse({ ok: true });
+          break;
+        }
         case "content:assignWorkspace":
           if (_sender.tab?.id) {
             await moveTabToWorkspace(_sender.tab.id, message.workspaceId ?? null);
@@ -1305,6 +1477,10 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
           sendResponse({ ok: true });
           break;
         }
+        case "content:disableAutoAssignPrompt":
+          await setRuntimeSettingsPartial({ autoAssignPrompt: false });
+          sendResponse({ ok: true });
+          break;
         case "content:duplicateMerge": {
           const senderId = _sender.tab?.id;
           const otherId = typeof message.otherTabId === "number" ? message.otherTabId : null;
@@ -1420,9 +1596,21 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
             if (!link.url.startsWith("http")) {
               continue;
             }
-            await chrome.tabs.create({ url: link.url, active: first });
+            await focusOrOpenUrl(link.url, first);
             first = false;
           }
+          sendResponse({ ok: true });
+          break;
+        }
+        case "dashboard:focusOrOpenUrl":
+        case "popup:focusOrOpenUrl": {
+          const rawUrl = typeof message.url === "string" ? message.url.trim() : "";
+          const active = message.active !== false;
+          if (!rawUrl) {
+            sendResponse({ ok: false });
+            break;
+          }
+          await focusOrOpenUrl(rawUrl, active);
           sendResponse({ ok: true });
           break;
         }

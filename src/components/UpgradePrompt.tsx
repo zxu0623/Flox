@@ -37,18 +37,18 @@ export function UpgradePrompt({
   };
 
   return (
-    <div className={`rounded-xl border border-violet-400/40 bg-gradient-to-r from-violet-900/50 to-indigo-900/40 p-4 ${className}`}>
-      <p className="text-sm text-violet-100">✨ {t("upgradeProUnlockFeature", [featureName], language)}</p>
+    <div className={`rounded-xl border border-amber-300 dark:border-amber-500/25 bg-amber-50 dark:bg-amber-950/20 p-4 ${className}`}>
+      <p className="text-sm text-amber-950 dark:text-amber-100">{t("upgradeProUnlockFeature", [featureName], language)}</p>
       <div className="mt-3 flex items-center gap-2">
         <button
           type="button"
           onClick={() => void openPro()}
-          className="rounded bg-white/10 px-3 py-1.5 text-xs text-violet-100 hover:bg-white/20"
+          className="rounded-md bg-amber-400 px-3 py-1.5 text-xs font-medium text-zinc-900 hover:bg-amber-300 transition-colors duration-100"
         >
           {t("learnFloxPro", undefined, language)}
         </button>
         {onClose ? (
-          <button type="button" onClick={onClose} className="text-xs text-violet-200/80 hover:text-violet-100">
+          <button type="button" onClick={onClose} className="text-xs text-amber-800 dark:text-amber-300/70 hover:text-amber-900 dark:text-amber-200 transition-colors duration-100">
             {t("popupClose", undefined, language)}
           </button>
         ) : null}

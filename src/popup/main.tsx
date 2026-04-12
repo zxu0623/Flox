@@ -4,6 +4,14 @@ import { FixedSizeList, type ListChildComponentProps } from "react-window";
 import "../styles.css";
 import { getStoredLanguage, type LanguageCode, t } from "../utils/i18n";
 import { checkFeature, MONETIZATION_ENABLED, PLAN_LIMITS } from "../utils/plan";
+import { FloxLogo } from "../components/FloxLogo";
+import {
+  applyUiThemeToDocument,
+  getStoredUiTheme,
+  setStoredUiTheme,
+  UI_THEME_STORAGE_KEY,
+  type UiTheme
+} from "../utils/theme";
 
 const PLACEHOLDER_FAVICON = "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==";
 
@@ -129,7 +137,7 @@ function TabList({
   closingTabIds: Set<number>;
 }) {
   if (tabs.length === 0) {
-    return <p className="mt-2 text-xs text-slate-500">{t("popupNoTabs", undefined, language)}</p>;
+    return <p className="mt-2 text-xs text-zinc-600 dark:text-zinc-500">{t("popupNoTabs", undefined, language)}</p>;
   }
 
   const renderRow = ({ index, style }: ListChildComponentProps) => {
@@ -137,14 +145,14 @@ function TabList({
     return (
       <div
         style={style}
-        className={`flex items-center gap-2 border-b border-slate-800 px-2 py-1 transition-all duration-150 ${
+        className={`flex items-center gap-2 border-b border-zinc-200 dark:border-zinc-800 px-2 py-1 transition-all duration-150 ${
           closingTabIds.has(tab.tabId) ? "translate-y-1 opacity-0" : "opacity-100"
         }`}
       >
         <img src={tab.favIconUrl || "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw=="} alt="" className="h-4 w-4 rounded-sm" />
         <div className="min-w-0 flex-1">
-          <p className="truncate text-xs text-slate-200">{tab.title || t("popupUnknownTitle", undefined, language)}</p>
-          <p className="text-[10px] text-slate-500">{formatLastAccessed(tab.lastAccessed, language)}</p>
+          <p className="truncate text-xs text-zinc-800 dark:text-zinc-200">{tab.title || t("popupUnknownTitle", undefined, language)}</p>
+          <p className="text-[10px] text-zinc-600 dark:text-zinc-500">{formatLastAccessed(tab.lastAccessed, language)}</p>
         </div>
         <button
           type="button"
@@ -152,7 +160,7 @@ function TabList({
             event.stopPropagation();
             void onClose(tab.tabId);
           }}
-          className="rounded border border-slate-700 px-1.5 py-0.5 text-[10px] text-slate-300 hover:bg-slate-800"
+          className="rounded border border-zinc-300 dark:border-zinc-700 px-1.5 py-0.5 text-[10px] text-zinc-700 dark:text-zinc-300 hover:bg-zinc-200 dark:bg-zinc-800"
         >
           {t("popupClose", undefined, language)}
         </button>
@@ -167,7 +175,7 @@ function TabList({
         width="100%"
         itemCount={tabs.length}
         itemSize={42}
-        className="mt-2 rounded border border-slate-800"
+        className="mt-2 rounded border border-zinc-200 dark:border-zinc-800"
       >
         {renderRow}
       </FixedSizeList>
@@ -175,18 +183,18 @@ function TabList({
   }
 
   return (
-    <div className="mt-2 max-h-[180px] overflow-y-auto rounded border border-slate-800">
+    <div className="mt-2 max-h-[180px] overflow-y-auto rounded border border-zinc-200 dark:border-zinc-800">
       {tabs.map((tab) => (
         <div
           key={tab.tabId}
-          className={`flex items-center gap-2 border-b border-slate-800 px-2 py-1 transition-all duration-150 last:border-b-0 ${
+          className={`flex items-center gap-2 border-b border-zinc-200 dark:border-zinc-800 px-2 py-1 transition-all duration-150 last:border-b-0 ${
             closingTabIds.has(tab.tabId) ? "translate-y-1 opacity-0" : "opacity-100"
           }`}
         >
           <img src={tab.favIconUrl || "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw=="} alt="" className="h-4 w-4 rounded-sm" />
           <div className="min-w-0 flex-1">
-            <p className="truncate text-xs text-slate-200">{tab.title || t("popupUnknownTitle", undefined, language)}</p>
-            <p className="text-[10px] text-slate-500">{formatLastAccessed(tab.lastAccessed, language)}</p>
+            <p className="truncate text-xs text-zinc-800 dark:text-zinc-200">{tab.title || t("popupUnknownTitle", undefined, language)}</p>
+            <p className="text-[10px] text-zinc-600 dark:text-zinc-500">{formatLastAccessed(tab.lastAccessed, language)}</p>
           </div>
           <button
             type="button"
@@ -194,7 +202,7 @@ function TabList({
               event.stopPropagation();
               void onClose(tab.tabId);
             }}
-            className="rounded border border-slate-700 px-1.5 py-0.5 text-[10px] text-slate-300 hover:bg-slate-800"
+            className="rounded border border-zinc-300 dark:border-zinc-700 px-1.5 py-0.5 text-[10px] text-zinc-700 dark:text-zinc-300 hover:bg-zinc-200 dark:bg-zinc-800"
           >
             {t("popupClose", undefined, language)}
           </button>
@@ -242,6 +250,7 @@ function PopupApp() {
     workspaceLabel: string;
   } | null>(null);
   const [unassignedBulkDismissed, setUnassignedBulkDismissed] = React.useState(false);
+  const [uiTheme, setUiTheme] = React.useState<UiTheme>("dark");
 
   React.useEffect(() => {
     if (snapshot.unassignedTabs.length === 0) {
@@ -255,9 +264,21 @@ function PopupApp() {
   }, []);
 
   React.useEffect(() => {
-    const listener: Parameters<typeof chrome.storage.onChanged.addListener>[0] = (_changes, areaName) => {
+    void getStoredUiTheme().then((theme) => {
+      setUiTheme(theme);
+      applyUiThemeToDocument(theme);
+    });
+  }, []);
+
+  React.useEffect(() => {
+    const listener: Parameters<typeof chrome.storage.onChanged.addListener>[0] = (changes, areaName) => {
       if (areaName === "local") {
         void refreshSnapshot();
+        const themeChange = changes[UI_THEME_STORAGE_KEY];
+        if (themeChange?.newValue === "light" || themeChange?.newValue === "dark") {
+          setUiTheme(themeChange.newValue);
+          applyUiThemeToDocument(themeChange.newValue);
+        }
       }
     };
     chrome.storage.onChanged.addListener(listener);
@@ -265,6 +286,13 @@ function PopupApp() {
       chrome.storage.onChanged.removeListener(listener);
     };
   }, []);
+
+  const toggleUiTheme = async () => {
+    const next: UiTheme = uiTheme === "dark" ? "light" : "dark";
+    await setStoredUiTheme(next);
+    setUiTheme(next);
+    applyUiThemeToDocument(next);
+  };
 
   const openDashboard = async () => {
     await chrome.tabs.create({
@@ -306,6 +334,10 @@ function PopupApp() {
     } catch {
       // Background may still be spinning up; keep popup stable.
     }
+  };
+
+  const openPinnedOrFocusTab = (url: string) => {
+    void sendMessage({ type: "popup:focusOrOpenUrl", url }).then(() => refreshSnapshot());
   };
 
   const executeCloseTab = async (tabId: number, mode: "close" | "delete_workspace", workspaceId?: string) => {
@@ -691,47 +723,59 @@ function PopupApp() {
   };
 
   return (
-    <main className="h-[500px] w-[380px] overflow-y-auto bg-slate-950 p-3 text-slate-100">
-      <header className="sticky top-0 z-10 rounded-md bg-slate-950/95 pb-2 backdrop-blur">
-        <div className="flex items-center justify-between">
+    <main className="h-[500px] w-[380px] overflow-y-auto bg-zinc-50 dark:bg-zinc-950 p-3 text-zinc-900 dark:text-zinc-100 antialiased">
+      <header className="sticky top-0 z-10 bg-zinc-50/95 dark:bg-zinc-950/95 pb-2 backdrop-blur backdrop-saturate-150">
+        <div className="flex items-center justify-between gap-2">
           <h1
-            className="cursor-default text-xl font-semibold"
+            className="m-0 cursor-default p-0"
             onDoubleClick={() => setDebugButtonVisible((value) => !value)}
+            aria-label={t("appName", undefined, language)}
           >
-            {t("appName", undefined, language)}
+            <FloxLogo size="md" />
           </h1>
-          <button
-            type="button"
-            onClick={openDashboard}
-            className="tooltip-trigger rounded bg-indigo-500 px-2 py-1 text-xs font-medium text-white hover:bg-indigo-400"
-            data-tooltip={t("tooltipOpenDashboard", undefined, language)}
-          >
-            {t("popupOpenDashboard", undefined, language)}
-          </button>
+          <div className="flex shrink-0 items-center gap-1.5">
+            <button
+              type="button"
+              onClick={() => void toggleUiTheme()}
+              className="tooltip-trigger rounded-md border border-zinc-300 dark:border-zinc-700 bg-zinc-100/80 dark:bg-zinc-900 px-2 py-1 text-sm leading-none text-zinc-800 dark:text-zinc-200 hover:bg-zinc-200 dark:hover:bg-zinc-800"
+              aria-label={uiTheme === "dark" ? t("themeSwitchToLight", undefined, language) : t("themeSwitchToDark", undefined, language)}
+              data-tooltip={uiTheme === "dark" ? t("themeSwitchToLight", undefined, language) : t("themeSwitchToDark", undefined, language)}
+            >
+              {uiTheme === "dark" ? "☀️" : "🌙"}
+            </button>
+            <button
+              type="button"
+              onClick={openDashboard}
+              className="tooltip-trigger rounded bg-amber-400 px-2 py-1 text-xs font-medium text-zinc-900 hover:bg-amber-300"
+              data-tooltip={t("tooltipOpenDashboard", undefined, language)}
+            >
+              {t("popupOpenDashboard", undefined, language)}
+            </button>
+          </div>
         </div>
         {debugButtonVisible ? (
           <div className="mt-1 flex justify-end">
             <button
               type="button"
               onClick={() => void runDebugDump()}
-              className="rounded border border-amber-500/40 px-1.5 py-0.5 text-[10px] text-amber-300 hover:bg-amber-500/10"
+              className="rounded border border-amber-300 dark:border-amber-500/40 px-1.5 py-0.5 text-[10px] text-amber-800 dark:text-amber-300 hover:bg-amber-100/90 dark:bg-amber-500/10"
             >
               debug
             </button>
           </div>
         ) : null}
-        <p className="mt-1 text-xs text-slate-400">{t("popupTotalTabs", [String(snapshot.totalTabs)], language)}</p>
-        <div className="mt-2 flex gap-6 border-b border-slate-800 text-xs">
+        <p className="mt-1 text-xs text-zinc-600 dark:text-zinc-400">{t("popupTotalTabs", [String(snapshot.totalTabs)], language)}</p>
+        <div className="mt-2 flex gap-5 border-b border-zinc-200/90 dark:border-zinc-800/80 text-xs font-medium">
           <button
             type="button"
-            className={`pb-2 ${mainTab === "tabs" ? "border-b-2 border-indigo-500 font-medium text-slate-100" : "text-slate-500 hover:text-slate-300"}`}
+            className={`pb-2 ${mainTab === "tabs" ? "border-b-2 border-amber-400 font-medium text-zinc-900 dark:text-zinc-100" : "text-zinc-600 dark:text-zinc-500 hover:text-zinc-700 dark:text-zinc-300"}`}
             onClick={() => setMainTab("tabs")}
           >
             {t("popupTabTabs", undefined, language)}
           </button>
           <button
             type="button"
-            className={`pb-2 ${mainTab === "pinned" ? "border-b-2 border-indigo-500 font-medium text-slate-100" : "text-slate-500 hover:text-slate-300"}`}
+            className={`pb-2 ${mainTab === "pinned" ? "border-b-2 border-amber-400 font-medium text-zinc-900 dark:text-zinc-100" : "text-zinc-600 dark:text-zinc-500 hover:text-zinc-700 dark:text-zinc-300"}`}
             onClick={() => setMainTab("pinned")}
           >
             {t("popupTabPinned", undefined, language)}
@@ -741,7 +785,7 @@ function PopupApp() {
           type="button"
           disabled={loadingKey === "pin-current-tab"}
           onClick={() => void handlePinCurrentTab()}
-          className="tooltip-trigger mt-2 flex w-full items-center justify-center gap-2 rounded-md bg-teal-500 px-3 py-2 text-sm font-bold text-white shadow-md shadow-teal-950/35 ring-1 ring-teal-300/40 hover:bg-teal-400 active:bg-teal-600 disabled:opacity-50 disabled:shadow-none"
+          className="tooltip-trigger mt-2 flex w-full items-center justify-center gap-2 rounded-md bg-amber-400 px-3 py-2 text-sm font-semibold text-zinc-900 shadow-md shadow-amber-300/25 dark:shadow-amber-950/30 ring-1 ring-amber-300/30 hover:bg-amber-300 active:bg-amber-500 disabled:opacity-40 disabled:shadow-none"
           data-tooltip={t("commandSavePinned", undefined, language)}
         >
           {loadingKey === "pin-current-tab" ? (
@@ -758,7 +802,7 @@ function PopupApp() {
       </header>
 
       {mainTab === "tabs" && snapshot.idleTabs.length > 0 ? (
-        <section className="mt-2 rounded-lg border border-amber-600/40 bg-amber-900/15 p-2">
+        <section className="mt-2 rounded-lg border border-amber-200 dark:border-amber-600/40 bg-amber-50 dark:bg-amber-900/15 p-2">
           <div className="flex items-center justify-between gap-2">
             <div className="flex min-w-0 flex-1 gap-2 overflow-x-auto py-0.5">
               {idleGroups.map((group) => {
@@ -766,29 +810,29 @@ function PopupApp() {
                 return (
                   <div
                     key={group.key}
-                    className={`group relative flex shrink-0 items-center gap-1.5 rounded-full border border-amber-500/30 bg-amber-500/10 px-2 py-1 text-[11px] text-amber-100 transition-all duration-150 ${
+                    className={`group relative flex shrink-0 items-center gap-1.5 rounded-full border border-amber-200 dark:border-amber-500/30 bg-amber-100/90 dark:bg-amber-500/10 px-2 py-1 text-[11px] text-amber-950 dark:text-amber-100 transition-all duration-150 ${
                       isClosing ? "translate-y-1 opacity-0" : "opacity-100"
                     }`}
                   >
                     <span className="h-2 w-2 rounded-full" style={{ backgroundColor: group.color }} />
                     <span className="max-w-[140px] truncate">{group.name}</span>
-                    <span className="text-amber-200/90">{t("popupIdleChipCount", [String(group.tabs.length)], language)}</span>
+                    <span className="text-amber-900/95 dark:text-amber-200/90">{t("popupIdleChipCount", [String(group.tabs.length)], language)}</span>
                     <button
                       type="button"
                       onClick={(event) => {
                         event.stopPropagation();
                         void closeIdleTabsByGroup(group);
                       }}
-                      className="ml-1 rounded-full px-1 text-amber-200/80 hover:bg-amber-500/15 hover:text-amber-100"
+                      className="ml-1 rounded-full px-1 text-amber-900/90 dark:text-amber-200/80 hover:bg-amber-500/15 hover:text-amber-950 dark:text-amber-100"
                       aria-label="close"
                     >
                       ×
                     </button>
 
                     <div className="pointer-events-none absolute left-0 top-full z-30 hidden w-[320px] pt-2 group-hover:block">
-                      <div className="relative rounded-lg border border-slate-800 bg-slate-950 p-3 shadow-xl shadow-black/40">
-                        <div className="absolute -top-1.5 left-6 h-3 w-3 rotate-45 border border-slate-800 bg-slate-950" />
-                        <p className="text-xs font-semibold text-slate-100">
+                      <div className="relative rounded-lg border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-950 p-3 shadow-xl shadow-zinc-400/15 dark:shadow-black/40">
+                        <div className="absolute -top-1.5 left-6 h-3 w-3 rotate-45 border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-950" />
+                        <p className="text-xs font-semibold text-zinc-900 dark:text-zinc-100">
                           {t("popupIdleTooltipTitle", [group.name, String(group.tabs.length)], language)}
                         </p>
                         <div className="mt-2 space-y-1.5">
@@ -800,17 +844,17 @@ function PopupApp() {
                                 className="h-4 w-4 rounded-sm"
                               />
                               <div className="min-w-0 flex-1">
-                                <p className="truncate text-[11px] text-slate-200">
+                                <p className="truncate text-[11px] text-zinc-800 dark:text-zinc-200">
                                   {tab.title || t("popupUnknownTitle", undefined, language)}
                                 </p>
-                                <p className="text-[10px] text-slate-500">
+                                <p className="text-[10px] text-zinc-600 dark:text-zinc-500">
                                   {t("popupIdleTooltipRow", [formatIdleDuration(tab.lastAccessed, language)], language)}
                                 </p>
                               </div>
                             </div>
                           ))}
                           {group.tabs.length > 8 ? (
-                            <p className="pt-1 text-[10px] text-slate-500">…</p>
+                            <p className="pt-1 text-[10px] text-zinc-600 dark:text-zinc-500">…</p>
                           ) : null}
                         </div>
                       </div>
@@ -822,7 +866,7 @@ function PopupApp() {
             <button
               type="button"
               onClick={() => void closeIdleTabsAll()}
-              className="shrink-0 rounded border border-amber-500/40 px-2 py-1 text-[11px] text-amber-200 hover:bg-amber-500/10"
+              className="shrink-0 rounded border border-amber-300 dark:border-amber-500/40 px-2 py-1 text-[11px] text-amber-900 dark:text-amber-200 hover:bg-amber-100/90 dark:bg-amber-500/10"
             >
               {loadingKey === "idle-close-all" ? t("loading", undefined, language) : t("popupIdleCleanAll", undefined, language)}
             </button>
@@ -839,27 +883,27 @@ function PopupApp() {
           return (
             <div
               key={workspace.id}
-              className={`mb-2 rounded-lg border p-2 ${isStashed ? "border-slate-700 bg-slate-900/40 opacity-80" : "border-slate-800 bg-slate-900/70"}`}
+              className={`mb-2 rounded-lg border p-2 ${isStashed ? "border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900/30 opacity-70" : "border-zinc-200/80 dark:border-zinc-800/70 bg-zinc-100/90 dark:bg-zinc-900/50"}`}
             >
               <div className="flex items-center gap-2">
                 <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: workspace.color }} />
                 <button
                   type="button"
                   onClick={() => openEditorForWorkspace(workspace)}
-                  className="truncate text-left text-sm font-medium hover:text-indigo-300"
+                  className="truncate text-left text-sm font-medium hover:text-amber-400 transition-colors duration-100"
                 >
                   {t(workspace.name, undefined, language)}
                 </button>
-                <span className="ml-auto text-[11px] text-slate-400">{workspace.tabCount}</span>
+                <span className="ml-auto text-[11px] text-zinc-600 dark:text-zinc-400">{workspace.tabCount}</span>
               </div>
-              <div className="mt-1 h-1.5 overflow-hidden rounded bg-slate-800">
+              <div className="mt-1 h-1.5 overflow-hidden rounded bg-zinc-200 dark:bg-zinc-800">
                 <div
                   className="h-full rounded"
                   style={{ width: `${(workspace.tabCount / maxWorkspaceTabs) * 100}%`, backgroundColor: workspace.color }}
                 />
               </div>
               {isStashed ? (
-                <div className="mt-1 text-[10px] text-slate-400">
+                <div className="mt-1 text-[10px] text-zinc-600 dark:text-zinc-400">
                   <p>{t("popupStashedState", [String(workspace.stashedCount)], language)}</p>
                   {workspace.stashedAt ? <p>{formatStashedAt(workspace.stashedAt, language)}</p> : null}
                 </div>
@@ -868,7 +912,7 @@ function PopupApp() {
                 <button
                   type="button"
                   onClick={() => void handleStashOrRestore(workspace)}
-                  className="tooltip-trigger rounded border border-slate-700 px-2 py-1 text-[10px] hover:bg-slate-800"
+                  className="tooltip-trigger rounded border border-zinc-300 dark:border-zinc-700 px-2 py-1 text-[10px] hover:bg-zinc-200 dark:bg-zinc-800"
                   data-tooltip={t("tooltipStashShortcut", undefined, language)}
                 >
                   {loadingKey === `workspace-${workspace.id}-stash` ? t("loading", undefined, language) : null}
@@ -877,7 +921,7 @@ function PopupApp() {
                 <button
                   type="button"
                   onClick={() => void handleCloseWorkspaceTabs(workspace.id)}
-                  className="tooltip-trigger rounded border border-slate-700 px-2 py-1 text-[10px] hover:bg-slate-800"
+                  className="tooltip-trigger rounded border border-zinc-300 dark:border-zinc-700 px-2 py-1 text-[10px] hover:bg-zinc-200 dark:bg-zinc-800"
                   data-tooltip={t("tooltipCloseAllTabs", undefined, language)}
                 >
                   {loadingKey === `workspace-${workspace.id}-close` ? t("loading", undefined, language) : null}
@@ -886,7 +930,7 @@ function PopupApp() {
                 <button
                   type="button"
                   onClick={() => handleToggleWorkspaceExpanded(workspace.id)}
-                  className="tooltip-trigger rounded border border-slate-700 px-2 py-1 text-[10px] hover:bg-slate-800"
+                  className="tooltip-trigger rounded border border-zinc-300 dark:border-zinc-700 px-2 py-1 text-[10px] hover:bg-zinc-200 dark:bg-zinc-800"
                   data-tooltip={t("tooltipExpandList", undefined, language)}
                 >
                   {expanded ? t("popupCollapse", undefined, language) : t("popupExpand", undefined, language)}
@@ -900,7 +944,7 @@ function PopupApp() {
         })}
       </section>
 
-      <footer className="mt-2 rounded-lg border border-slate-800 bg-slate-900/70 p-2">
+      <footer className="mt-2 rounded-lg border border-zinc-200/70 dark:border-zinc-800/60 bg-zinc-50/95 dark:bg-zinc-900/40 p-2">
         <div className="flex items-center gap-2">
           <button
             type="button"
@@ -908,14 +952,14 @@ function PopupApp() {
             className="flex min-w-0 flex-1 items-center justify-between text-left text-xs"
           >
             <span>{t("popupUnassigned", undefined, language)}</span>
-            <span className="text-slate-400">{snapshot.unassignedTabs.length}</span>
+            <span className="text-zinc-600 dark:text-zinc-400">{snapshot.unassignedTabs.length}</span>
           </button>
           {snapshot.unassignedTabs.length > 0 ? (
             <button
               type="button"
               onClick={() => void closeAllUnassignedTabs()}
               disabled={loadingKey === "unassigned-close-all"}
-              className="shrink-0 rounded border border-rose-700/50 px-2 py-1 text-[10px] text-rose-200 hover:bg-rose-950/40 disabled:opacity-50"
+              className="shrink-0 rounded border border-rose-300 dark:border-rose-700/50 px-2 py-1 text-[10px] text-rose-900 dark:text-rose-200 hover:bg-rose-100 dark:hover:bg-rose-950/40 disabled:opacity-50"
             >
               {loadingKey === "unassigned-close-all" ? t("loading", undefined, language) : t("popupUnassignedCloseAll", undefined, language)}
             </button>
@@ -928,14 +972,14 @@ function PopupApp() {
           <button
             type="button"
             onClick={() => void handleNewTask()}
-            className="tooltip-trigger rounded border border-slate-700 px-2 py-1 text-xs hover:bg-slate-800"
+            className="tooltip-trigger rounded border border-zinc-300 dark:border-zinc-700 px-2 py-1 text-xs hover:bg-zinc-200 dark:bg-zinc-800"
             data-tooltip={t("tooltipNewTask", undefined, language)}
           >
             {t("popupNewTask", undefined, language)}
           </button>
           <button
             type="button"
-            onClick={() => void chrome.tabs.create({ url: t("feedbackUrl", undefined, language) })}
+            onClick={() => void chrome.tabs.create({ url: chrome.runtime.getURL("feedback.html") })}
             className="tooltip-trigger text-[11px] text-cyan-300 hover:text-cyan-200"
             data-tooltip={t("feedbackLink", undefined, language)}
           >
@@ -947,12 +991,12 @@ function PopupApp() {
       ) : (
         <section className="mt-3 flex flex-1 flex-col">
           {pinnedGroups.length === 0 ? (
-            <p className="text-xs text-slate-500">{t("pinnedEmpty", undefined, language)}</p>
+            <p className="text-xs text-zinc-600 dark:text-zinc-500">{t("pinnedEmpty", undefined, language)}</p>
           ) : (
             <div className="max-h-[320px] space-y-4 overflow-y-auto pr-1">
               {pinnedGroups.map((group) => (
                 <div key={group.key}>
-                  <div className="mb-1.5 flex items-center gap-2 text-xs font-medium text-slate-300">
+                  <div className="mb-1.5 flex items-center gap-2 text-xs font-medium text-zinc-700 dark:text-zinc-300">
                     <span className="h-2 w-2 rounded-full" style={{ backgroundColor: group.color }} />
                     {group.label}
                   </div>
@@ -960,46 +1004,46 @@ function PopupApp() {
                     {group.links.map((link) => (
                       <li
                         key={link.id}
-                        className="flex items-center gap-2 rounded border border-slate-800 bg-slate-900/80 px-2 py-1.5 text-xs"
+                        className="flex items-center gap-2 rounded border border-zinc-200 dark:border-zinc-800 bg-zinc-100/95 dark:bg-zinc-900/80 px-2 py-1.5 text-xs"
                       >
                         <button
                           type="button"
-                          className="flex min-w-0 flex-1 items-center gap-2 text-left hover:text-indigo-300"
-                          onClick={() => void chrome.tabs.create({ url: link.url })}
+                          className="flex min-w-0 flex-1 items-center gap-2 text-left hover:text-amber-400"
+                          onClick={() => openPinnedOrFocusTab(link.url)}
                         >
                           <img src={link.favIconUrl || PLACEHOLDER_FAVICON} alt="" className="h-4 w-4 shrink-0 rounded-sm" />
                           <span className="truncate">{link.title || link.domain}</span>
                         </button>
                         <button
                           type="button"
-                          className="shrink-0 rounded border border-slate-700 px-1.5 py-0.5 text-[10px] hover:bg-slate-800"
-                          onClick={() => void chrome.tabs.create({ url: link.url })}
+                          className="shrink-0 rounded border border-zinc-300 dark:border-zinc-700 px-1.5 py-0.5 text-[10px] hover:bg-zinc-200 dark:bg-zinc-800"
+                          onClick={() => openPinnedOrFocusTab(link.url)}
                         >
                           {t("pinnedOpen", undefined, language)}
                         </button>
                         <div className="relative shrink-0">
                           <button
                             type="button"
-                            className="rounded px-1 text-slate-400 hover:bg-slate-800 hover:text-slate-200"
+                            className="rounded px-1 text-zinc-600 dark:text-zinc-400 hover:bg-zinc-200 dark:bg-zinc-800 hover:text-zinc-800 dark:text-zinc-200"
                             aria-label={t("pinnedMore", undefined, language)}
                             onClick={() => setOpenMenuPinnedId((id) => (id === link.id ? null : link.id))}
                           >
                             ⋯
                           </button>
                           {openMenuPinnedId === link.id ? (
-                            <div className="absolute right-0 top-full z-40 mt-1 min-w-[120px] rounded border border-slate-700 bg-slate-900 py-1 shadow-lg">
+                            <div className="absolute right-0 top-full z-40 mt-1 min-w-[120px] rounded border border-zinc-300 dark:border-zinc-700 bg-zinc-100 dark:bg-zinc-900 py-1 shadow-lg">
                               <button
                                 type="button"
-                                className="block w-full px-2 py-1 text-left text-[11px] hover:bg-slate-800"
+                                className="block w-full px-2 py-1 text-left text-[11px] hover:bg-zinc-200 dark:bg-zinc-800"
                                 onClick={() => openPinnedEdit(link)}
                               >
                                 {t("pinnedEdit", undefined, language)}
                               </button>
-                              <div className="border-t border-slate-800 px-2 py-1 text-[10px] text-slate-500">
+                              <div className="border-t border-zinc-200 dark:border-zinc-800 px-2 py-1 text-[10px] text-zinc-600 dark:text-zinc-500">
                                 {t("pinnedMove", undefined, language)}
                               </div>
                               <select
-                                className="mx-2 mb-1 w-[calc(100%-16px)] rounded border border-slate-700 bg-slate-950 px-1 py-0.5 text-[10px]"
+                                className="mx-2 mb-1 w-[calc(100%-16px)] rounded border border-zinc-300 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-950 px-1 py-0.5 text-[10px]"
                                 value={link.workspaceId ?? ""}
                                 onChange={(e) => {
                                   const v = e.target.value || null;
@@ -1020,7 +1064,7 @@ function PopupApp() {
                               </select>
                               <button
                                 type="button"
-                                className="block w-full px-2 py-1 text-left text-[11px] text-rose-300 hover:bg-slate-800"
+                                className="block w-full px-2 py-1 text-left text-[11px] text-rose-800 dark:text-rose-300 hover:bg-zinc-200 dark:bg-zinc-800"
                                 onClick={() => {
                                   if (window.confirm(t("pinnedDelete", undefined, language))) {
                                     void sendMessage({ type: "popup:removePinnedLink", id: link.id }).then(() => refreshSnapshot());
@@ -1042,7 +1086,7 @@ function PopupApp() {
           )}
           <button
             type="button"
-            className="mt-3 w-full rounded border border-slate-700 py-2 text-xs hover:bg-slate-900"
+            className="mt-3 w-full rounded border border-zinc-300 dark:border-zinc-700 py-2 text-xs hover:bg-zinc-100 dark:bg-zinc-900"
             onClick={() => openPinnedAdd()}
           >
             {t("pinnedAddLink", undefined, language)}
@@ -1052,38 +1096,38 @@ function PopupApp() {
 
       {pinnedEditor ? (
         <div
-          className="fixed inset-0 z-[35] flex items-center justify-center bg-black/55 p-3"
+          className="fixed inset-0 z-[35] flex items-center justify-center bg-zinc-900/35 dark:bg-black/55 p-3"
           onClick={() => setPinnedEditor(null)}
           role="presentation"
         >
           <div
-            className="w-full max-w-sm rounded-xl border border-slate-700 bg-slate-900 p-4 shadow-xl"
+            className="w-full max-w-sm rounded-xl border border-zinc-300 dark:border-zinc-700 bg-zinc-100 dark:bg-zinc-900 p-4 shadow-xl"
             onClick={(e) => e.stopPropagation()}
             role="dialog"
             aria-modal="true"
           >
-            <p className="text-sm font-semibold text-slate-100">
+            <p className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">
               {pinnedEditor.mode === "add" ? t("pinnedAddLink", undefined, language) : t("pinnedEdit", undefined, language)}
             </p>
-            <label className="mt-3 block text-[11px] text-slate-400">{t("pinnedUrl", undefined, language)}</label>
+            <label className="mt-3 block text-[11px] text-zinc-600 dark:text-zinc-400">{t("pinnedUrl", undefined, language)}</label>
             <input
               value={pinUrl}
               onChange={(e) => setPinUrl(e.target.value)}
               onBlur={() => void fetchPinPreview()}
               disabled={pinnedEditor.mode === "edit"}
-              className="mt-1 w-full rounded border border-slate-700 bg-slate-950 px-2 py-1.5 text-xs text-slate-100 disabled:opacity-60"
+              className="mt-1 w-full rounded border border-zinc-300 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-950 px-2 py-1.5 text-xs text-zinc-900 dark:text-zinc-100 disabled:opacity-60"
             />
-            <label className="mt-2 block text-[11px] text-slate-400">{t("pinnedTitle", undefined, language)}</label>
+            <label className="mt-2 block text-[11px] text-zinc-600 dark:text-zinc-400">{t("pinnedTitle", undefined, language)}</label>
             <input
               value={pinTitle}
               onChange={(e) => setPinTitle(e.target.value)}
-              className="mt-1 w-full rounded border border-slate-700 bg-slate-950 px-2 py-1.5 text-xs text-slate-100"
+              className="mt-1 w-full rounded border border-zinc-300 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-950 px-2 py-1.5 text-xs text-zinc-900 dark:text-zinc-100"
             />
-            <label className="mt-2 block text-[11px] text-slate-400">{t("pinnedWorkspace", undefined, language)}</label>
+            <label className="mt-2 block text-[11px] text-zinc-600 dark:text-zinc-400">{t("pinnedWorkspace", undefined, language)}</label>
             <select
               value={pinWorkspaceId}
               onChange={(e) => setPinWorkspaceId(e.target.value)}
-              className="mt-1 w-full rounded border border-slate-700 bg-slate-950 px-2 py-1.5 text-xs text-slate-100"
+              className="mt-1 w-full rounded border border-zinc-300 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-950 px-2 py-1.5 text-xs text-zinc-900 dark:text-zinc-100"
             >
               <option value="">{t("pinnedNone", undefined, language)}</option>
               {snapshot.workspaces.map((ws) => (
@@ -1092,12 +1136,12 @@ function PopupApp() {
                 </option>
               ))}
             </select>
-            {pinFetchLoading ? <p className="mt-2 text-[10px] text-slate-500">{t("loading", undefined, language)}</p> : null}
+            {pinFetchLoading ? <p className="mt-2 text-[10px] text-zinc-600 dark:text-zinc-500">{t("loading", undefined, language)}</p> : null}
             <div className="mt-4 flex justify-end gap-2">
-              <button type="button" className="rounded border border-slate-600 px-3 py-1.5 text-xs" onClick={() => setPinnedEditor(null)}>
+              <button type="button" className="rounded border border-zinc-300 dark:border-zinc-700 px-3 py-1.5 text-xs" onClick={() => setPinnedEditor(null)}>
                 {t("pinnedCancel", undefined, language)}
               </button>
-              <button type="button" className="rounded bg-indigo-500 px-3 py-1.5 text-xs text-white" onClick={() => void savePinnedForm()}>
+              <button type="button" className="rounded bg-amber-400 px-3 py-1.5 text-xs font-medium text-zinc-900 hover:bg-amber-300" onClick={() => void savePinnedForm()}>
                 {t("pinnedSave", undefined, language)}
               </button>
             </div>
@@ -1107,24 +1151,24 @@ function PopupApp() {
 
       {mainTab === "tabs" && snapshot.unassignedTabs.length > 0 && !unassignedBulkDismissed ? (
         <div
-          className="fixed inset-0 z-[36] flex items-center justify-center bg-black/55 p-3"
+          className="fixed inset-0 z-[36] flex items-center justify-center bg-zinc-900/35 dark:bg-black/55 p-3"
           onClick={() => setUnassignedBulkDismissed(true)}
           role="presentation"
         >
           <div
-            className="w-full max-w-sm rounded-xl border border-slate-700 bg-slate-900 p-4 shadow-xl"
+            className="w-full max-w-sm rounded-xl border border-zinc-300 dark:border-zinc-700 bg-zinc-100 dark:bg-zinc-900 p-4 shadow-xl"
             onClick={(e) => e.stopPropagation()}
             role="dialog"
             aria-modal="true"
           >
-            <p className="text-sm font-semibold text-slate-100">
+            <p className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">
               {t("popupUnassignedBulkTitle", [String(snapshot.unassignedTabs.length)], language)}
             </p>
-            <p className="mt-2 text-xs text-slate-400">{t("popupUnassignedBulkHint", undefined, language)}</p>
+            <p className="mt-2 text-xs text-zinc-600 dark:text-zinc-400">{t("popupUnassignedBulkHint", undefined, language)}</p>
             <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:justify-end">
               <button
                 type="button"
-                className="rounded border border-slate-600 px-3 py-1.5 text-xs text-slate-200 hover:bg-slate-800"
+                className="rounded border border-zinc-300 dark:border-zinc-700 px-3 py-1.5 text-xs text-zinc-800 dark:text-zinc-200 hover:bg-zinc-200 dark:bg-zinc-800"
                 onClick={() => setUnassignedBulkDismissed(true)}
               >
                 {t("popupUnassignedRemindLater", undefined, language)}
@@ -1144,31 +1188,31 @@ function PopupApp() {
 
       {lastWorkspaceTabPrompt ? (
         <div
-          className="fixed inset-0 z-[35] flex items-center justify-center bg-black/55 p-3"
+          className="fixed inset-0 z-[35] flex items-center justify-center bg-zinc-900/35 dark:bg-black/55 p-3"
           onClick={() => setLastWorkspaceTabPrompt(null)}
           role="presentation"
         >
           <div
-            className="w-full max-w-sm rounded-xl border border-slate-700 bg-slate-900 p-4 shadow-xl"
+            className="w-full max-w-sm rounded-xl border border-zinc-300 dark:border-zinc-700 bg-zinc-100 dark:bg-zinc-900 p-4 shadow-xl"
             onClick={(event) => event.stopPropagation()}
             role="dialog"
             aria-modal="true"
           >
-            <p className="text-sm font-semibold text-slate-100">
+            <p className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">
               {t("lastWorkspaceTabTitle", [lastWorkspaceTabPrompt.workspaceLabel], language)}
             </p>
-            <p className="mt-2 text-xs text-slate-400">{t("lastWorkspaceTabHint", undefined, language)}</p>
+            <p className="mt-2 text-xs text-zinc-600 dark:text-zinc-400">{t("lastWorkspaceTabHint", undefined, language)}</p>
             <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:justify-end">
               <button
                 type="button"
-                className="rounded border border-slate-600 px-3 py-1.5 text-xs text-slate-200 hover:bg-slate-800"
+                className="rounded border border-zinc-300 dark:border-zinc-700 px-3 py-1.5 text-xs text-zinc-800 dark:text-zinc-200 hover:bg-zinc-200 dark:bg-zinc-800"
                 onClick={() => setLastWorkspaceTabPrompt(null)}
               >
                 {t("lastWorkspaceTabCancel", undefined, language)}
               </button>
               <button
                 type="button"
-                className="rounded border border-slate-600 px-3 py-1.5 text-xs text-slate-200 hover:bg-slate-800"
+                className="rounded border border-zinc-300 dark:border-zinc-700 px-3 py-1.5 text-xs text-zinc-800 dark:text-zinc-200 hover:bg-zinc-200 dark:bg-zinc-800"
                 onClick={() => {
                   const payload = lastWorkspaceTabPrompt;
                   setLastWorkspaceTabPrompt(null);
@@ -1194,11 +1238,11 @@ function PopupApp() {
       ) : null}
 
       {MONETIZATION_ENABLED ? (
-        <div className="mt-3 border-t border-slate-800 pt-2 text-center">
+        <div className="mt-3 border-t border-zinc-200 dark:border-zinc-800 pt-2 text-center">
           <button
             type="button"
             onClick={() => void chrome.tabs.create({ url: chrome.runtime.getURL(t("popupProPageUrl", undefined, language)) })}
-            className="text-[11px] text-violet-300 hover:text-violet-200"
+            className="text-[11px] text-amber-400 hover:text-amber-800 dark:text-amber-300"
           >
             {t("popupProCta", undefined, language)}
           </button>
@@ -1207,46 +1251,46 @@ function PopupApp() {
 
       {editorMounted ? (
         <div
-          className={`fixed inset-0 z-30 flex items-end justify-center bg-black/50 p-3 transition-opacity duration-200 ${editorActive ? "opacity-100" : "opacity-0"}`}
+          className={`fixed inset-0 z-30 flex items-end justify-center bg-zinc-900/30 dark:bg-black/50 p-3 transition-opacity duration-200 ${editorActive ? "opacity-100" : "opacity-0"}`}
           onClick={closeEditor}
         >
           <div
-            className={`w-full rounded-xl border border-slate-700 bg-slate-900 p-3 transition-all duration-200 ${editorActive ? "translate-y-0 opacity-100" : "translate-y-4 opacity-0"}`}
+            className={`w-full rounded-xl border border-zinc-300 dark:border-zinc-700 bg-zinc-100 dark:bg-zinc-900 p-3 transition-all duration-200 ${editorActive ? "translate-y-0 opacity-100" : "translate-y-4 opacity-0"}`}
             onClick={(event) => event.stopPropagation()}
           >
             <h3 className="text-sm font-semibold">
               {editingWorkspaceId ? t("popupEditTaskTitle", undefined, language) : t("popupCreateTaskTitle", undefined, language)}
             </h3>
 
-            <label className="mt-2 block text-[11px] text-slate-300">{t("popupTaskNameLabel", undefined, language)}</label>
+            <label className="mt-2 block text-[11px] text-zinc-700 dark:text-zinc-300">{t("popupTaskNameLabel", undefined, language)}</label>
             <input
               value={workspaceNameInput}
               onChange={(event) => setWorkspaceNameInput(event.target.value)}
-              className="mt-1 w-full rounded border border-slate-700 bg-slate-950 px-2 py-1.5 text-xs text-slate-100"
+              className="mt-1 w-full rounded border border-zinc-300 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-950 px-2 py-1.5 text-xs text-zinc-900 dark:text-zinc-100"
             />
 
-            <p className="mt-3 text-[11px] text-slate-300">{t("popupTaskColorLabel", undefined, language)}</p>
+            <p className="mt-3 text-[11px] text-zinc-700 dark:text-zinc-300">{t("popupTaskColorLabel", undefined, language)}</p>
             <div className="mt-1 flex flex-wrap gap-2">
               {WORKSPACE_COLORS.map((color) => (
                 <button
                   key={color}
                   type="button"
                   onClick={() => setWorkspaceColorInput(color)}
-                  className={`h-5 w-5 rounded-full border-2 ${workspaceColorInput === color ? "border-white" : "border-slate-700"}`}
+                  className={`h-5 w-5 rounded-full border-2 ${workspaceColorInput === color ? "border-zinc-900 dark:border-white" : "border-zinc-300 dark:border-zinc-700"}`}
                   style={{ backgroundColor: color }}
                 />
               ))}
             </div>
 
-            <p className="mt-3 text-[11px] text-slate-300">{t("popupTaskRulesLabel", undefined, language)}</p>
-            <div className="mt-1 flex flex-wrap gap-1 rounded border border-slate-700 bg-slate-950 p-2">
+            <p className="mt-3 text-[11px] text-zinc-700 dark:text-zinc-300">{t("popupTaskRulesLabel", undefined, language)}</p>
+            <div className="mt-1 flex flex-wrap gap-1 rounded border border-zinc-300 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-950 p-2">
               {workspacePatterns.map((pattern) => (
-                <span key={pattern} className="inline-flex items-center gap-1 rounded bg-slate-800 px-1.5 py-0.5 text-[10px]">
+                <span key={pattern} className="inline-flex items-center gap-1 rounded bg-zinc-200 dark:bg-zinc-800 px-1.5 py-0.5 text-[10px]">
                   {pattern}
                   <button
                     type="button"
                     onClick={() => setWorkspacePatterns((current) => current.filter((item) => item !== pattern))}
-                    className="text-slate-400 hover:text-slate-200"
+                    className="text-zinc-600 dark:text-zinc-400 hover:text-zinc-800 dark:text-zinc-200"
                   >
                     x
                   </button>
@@ -1272,20 +1316,20 @@ function PopupApp() {
                   <button
                     type="button"
                     onClick={() => void deleteWorkspaceFromEditor()}
-                    className="rounded border border-rose-700 px-2 py-1 text-[11px] text-rose-300"
+                    className="rounded border border-rose-400 dark:border-rose-700 px-2 py-1 text-[11px] text-rose-800 dark:text-rose-300"
                   >
                     {t("deleteWorkspace", undefined, language)}
                   </button>
                 ) : null}
               </div>
               <div className="flex gap-2">
-                <button type="button" onClick={closeEditor} className="rounded border border-slate-700 px-2 py-1 text-[11px]">
+                <button type="button" onClick={closeEditor} className="rounded border border-zinc-300 dark:border-zinc-700 px-2 py-1 text-[11px]">
                   {t("popupCancel", undefined, language)}
                 </button>
                 <button
                   type="button"
                   onClick={() => void saveWorkspaceForm()}
-                  className="rounded bg-indigo-500 px-2 py-1 text-[11px] text-white"
+                  className="rounded bg-amber-400 px-2 py-1 text-[11px] font-medium text-zinc-900 hover:bg-amber-300"
                 >
                   {t("popupSave", undefined, language)}
                 </button>

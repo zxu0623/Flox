@@ -1,5 +1,10 @@
 import { t } from "../utils/i18n";
 import { PLAN_LIMITS } from "../utils/plan";
+import { UI_THEME_STORAGE_KEY, type UiTheme } from "../utils/theme";
+
+function escapeAttr(s: string): string {
+  return s.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;");
+}
 
 type WorkspaceLite = { id: string; name: string; color: string };
 
@@ -23,7 +28,9 @@ let currentWorkspaces: WorkspaceLite[] = [];
 let suggestedWorkspaceId: string | null = null;
 let uiMode: "list" | "newTask" = "list";
 let newTaskColor = WORKSPACE_COLORS[0];
+let newTaskDraftName = "";
 let newTaskError = "";
+let currentUiTheme: UiTheme = "dark";
 let pinFormOpen = false;
 let pinTitle = "";
 let pinWorkspaceId: string | null = null;
@@ -60,16 +67,16 @@ function startCollapseTimer() {
   }, 5000);
 }
 
-function render() {
-  if (!shadow) return;
-  const styles = `
+function buildPanelStyles(dark: boolean): string {
+  if (dark) {
+    return `
     .panel { width: 280px; background:#0f172a; color:#e2e8f0; border:1px solid rgba(148,163,184,.35); border-radius:12px; padding:12px; box-shadow:0 12px 30px rgba(2,6,23,.45); animation: slideIn .18s ease-out; font-family: Inter,system-ui,sans-serif; }
     .title { font-size:13px; font-weight:600; margin:0 0 10px 0; }
     .row { display:flex; gap:6px; flex-wrap:wrap; }
     button { border:1px solid rgba(100,116,139,.45); background:#111827; color:#e5e7eb; border-radius:8px; padding:6px 8px; font-size:12px; cursor:pointer; }
     .ghost { background:transparent; }
     .dot { width:8px; height:8px; border-radius:999px; display:inline-block; margin-right:6px; vertical-align:middle; }
-    .mini { width:36px; height:36px; border-radius:999px; display:flex; align-items:center; justify-content:center; background:#1e293b; border:1px solid rgba(148,163,184,.4); cursor:pointer; animation: fadeIn .18s ease-out; }
+    .mini { width:36px; height:36px; border-radius:999px; display:flex; align-items:center; justify-content:center; background:#1e293b; border:1px solid rgba(148,163,184,.4); cursor:pointer; animation: fadeIn .18s ease-out; color:#e2e8f0; font-weight:700; font-size:14px; }
     .input { width:100%; box-sizing:border-box; border:1px solid rgba(100,116,139,.45); background:#020617; color:#e2e8f0; border-radius:8px; padding:8px; font-size:12px; margin-bottom:8px; }
     .color-dot { width:20px; height:20px; border-radius:999px; border:2px solid transparent; cursor:pointer; padding:0; }
     .color-dot.sel { border-color:#e2e8f0; }
@@ -79,6 +86,32 @@ function render() {
     @keyframes slideIn { from { transform: translateX(20px); opacity:0 } to { transform: translateX(0); opacity:1 } }
     @keyframes fadeIn { from { opacity:0 } to { opacity:1 } }
   `;
+  }
+  return `
+    .panel { width: 280px; background:#fafafa; color:#0f172a; border:1px solid rgba(15,23,42,.12); border-radius:12px; padding:12px; box-shadow:0 12px 32px rgba(15,23,42,.12); animation: slideIn .18s ease-out; font-family: Inter,system-ui,sans-serif; }
+    .title { font-size:13px; font-weight:600; margin:0 0 10px 0; }
+    .row { display:flex; gap:6px; flex-wrap:wrap; }
+    button { border:1px solid rgba(15,23,42,.15); background:#f4f4f5; color:#0f172a; border-radius:8px; padding:6px 8px; font-size:12px; cursor:pointer; }
+    button:hover { background:#e4e4e7; }
+    .ghost { background:transparent; color:#334155; }
+    .ghost:hover { background:#f4f4f5; }
+    .dot { width:8px; height:8px; border-radius:999px; display:inline-block; margin-right:6px; vertical-align:middle; }
+    .mini { width:36px; height:36px; border-radius:999px; display:flex; align-items:center; justify-content:center; background:#e2e8f0; border:1px solid rgba(15,23,42,.12); cursor:pointer; animation: fadeIn .18s ease-out; color:#0f172a; font-weight:700; font-size:14px; }
+    .input { width:100%; box-sizing:border-box; border:1px solid rgba(15,23,42,.18); background:#ffffff; color:#0f172a; border-radius:8px; padding:8px; font-size:12px; margin-bottom:8px; }
+    .input:focus { outline:2px solid #2563eb; outline-offset:0; border-color:#2563eb; }
+    .color-dot { width:20px; height:20px; border-radius:999px; border:2px solid transparent; cursor:pointer; padding:0; }
+    .color-dot.sel { border-color:#0f172a; }
+    .err { font-size:11px; color:#b91c1c; margin:0 0 8px 0; }
+    .divider { border:none; border-top:1px solid rgba(15,23,42,.1); margin:12px 0 10px 0; }
+    select.input { cursor:pointer; }
+    @keyframes slideIn { from { transform: translateX(20px); opacity:0 } to { transform: translateX(0); opacity:1 } }
+    @keyframes fadeIn { from { opacity:0 } to { opacity:1 } }
+  `;
+}
+
+function render() {
+  if (!shadow) return;
+  const styles = buildPanelStyles(currentUiTheme === "dark");
 
   if (collapsed) {
     shadow.innerHTML = `<style>${styles}</style><div class="mini" title="${t("appName")}">F</div>`;
@@ -101,7 +134,7 @@ function render() {
       <div class="panel">
         <p class="title">${t("popupCreateTaskTitle")}</p>
         ${errBlock}
-        <input type="text" class="input" id="flox-new-task-name" placeholder="${t("popupTaskNameLabel")}" />
+        <input type="text" class="input" id="flox-new-task-name" placeholder="${t("popupTaskNameLabel")}" value="${escapeAttr(newTaskDraftName)}" />
         <div class="row" style="margin-bottom:10px">${colorDots}</div>
         <div class="row">
           <button type="button" id="flox-create-assign">${t("assignPromptCreateAndAssign")}</button>
@@ -110,12 +143,16 @@ function render() {
       </div>
     `;
     const nameInput = shadow.querySelector("#flox-new-task-name") as HTMLInputElement;
+    nameInput?.addEventListener("input", () => {
+      newTaskDraftName = nameInput.value;
+    });
     requestAnimationFrame(() => nameInput?.focus());
 
     shadow.querySelectorAll(".color-dot").forEach((btn) => {
       btn.addEventListener("click", () => {
         const c = (btn as HTMLButtonElement).dataset.color;
         if (c) {
+          newTaskDraftName = nameInput?.value ?? newTaskDraftName;
           newTaskColor = c;
           newTaskError = "";
           render();
@@ -126,12 +163,13 @@ function render() {
     shadow.querySelector("#flox-form-cancel")?.addEventListener("click", () => {
       uiMode = "list";
       newTaskError = "";
+      newTaskDraftName = "";
       render();
       startCollapseTimer();
     });
 
     shadow.querySelector("#flox-create-assign")?.addEventListener("click", () => {
-      const name = nameInput?.value?.trim() ?? "";
+      const name = (nameInput?.value ?? newTaskDraftName).trim();
       chrome.runtime.sendMessage(
         { type: "content:createWorkspaceAndAssign", name, color: newTaskColor },
         (response) => {
@@ -210,6 +248,7 @@ function render() {
       ${pinBlock}
       <div class="row" style="margin-top:10px">
         <button type="button" class="ghost" data-skip="1">${t("assignPromptSkip")}</button>
+        <button type="button" class="ghost" data-skip-forever="1">${t("assignPromptSkipForever")}</button>
         <button type="button" class="ghost" data-ignore="1">${t("assignPromptIgnoreDomain")}</button>
       </div>
     </div>
@@ -284,6 +323,7 @@ function render() {
   shadow.querySelector("button[data-new-task]")?.addEventListener("click", () => {
     uiMode = "newTask";
     newTaskError = "";
+    newTaskDraftName = "";
     newTaskColor = WORKSPACE_COLORS[0];
     pinFormOpen = false;
     pinError = "";
@@ -301,6 +341,10 @@ function render() {
   });
 
   shadow.querySelector("button[data-skip]")?.addEventListener("click", () => destroy());
+  shadow.querySelector("button[data-skip-forever]")?.addEventListener("click", () => {
+    send({ type: "content:disableAutoAssignPrompt" });
+    destroy();
+  });
   shadow.querySelector("button[data-ignore]")?.addEventListener("click", () => {
     send({ type: "content:ignoreDomain", domain: currentDomain });
     destroy();
@@ -317,6 +361,7 @@ function destroy() {
   collapsed = false;
   uiMode = "list";
   newTaskError = "";
+  newTaskDraftName = "";
   suggestedWorkspaceId = null;
   pinFormOpen = false;
   pinTitle = "";
@@ -332,9 +377,11 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   currentDomain = message.domain ?? "";
   currentWorkspaces = (message.workspaces as WorkspaceLite[]) ?? [];
   suggestedWorkspaceId = (message.suggestedWorkspaceId as string | null | undefined) ?? null;
+  currentUiTheme = message.uiTheme === "light" ? "light" : "dark";
   collapsed = false;
   uiMode = "list";
   newTaskError = "";
+  newTaskDraftName = "";
   pinFormOpen = false;
   pinTitle = document.title || "";
   pinWorkspaceId = null;
@@ -343,4 +390,18 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   startCollapseTimer();
   sendResponse({ ok: true });
   return false;
+});
+
+chrome.storage.onChanged.addListener((changes, areaName) => {
+  if (areaName !== "local" || !changes[UI_THEME_STORAGE_KEY] || !host || !shadow) {
+    return;
+  }
+  const next = changes[UI_THEME_STORAGE_KEY].newValue;
+  if (next === "light" || next === "dark") {
+    currentUiTheme = next;
+    render();
+    if (uiMode !== "newTask") {
+      startCollapseTimer();
+    }
+  }
 });

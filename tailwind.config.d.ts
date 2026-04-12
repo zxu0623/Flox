@@ -1,7 +1,12 @@
 declare const _default: {
+    darkMode: "class";
     content: string[];
     theme: {
-        extend: {};
+        extend: {
+            fontFamily: {
+                flox: [string, string, string, string, string];
+            };
+        };
     };
     plugins: any[];
 };

@@ -2,6 +2,8 @@
   "appName": { "message": "Flox" },
   "appDescription": { "message": "Flox - 专注工作的智能标签页管理器。" },
   "tagline": { "message": "专注工作的智能标签页管理器" },
+  "themeSwitchToLight": { "message": "切换到浅色主题" },
+  "themeSwitchToDark": { "message": "切换到深色主题" },
   "openDashboard": { "message": "打开仪表盘" },
   "contextMenuOpenDashboard": { "message": "打开 Flox 仪表盘" },
   "contextMenuAssignTo": { "message": "Flox：分配到..." },
@@ -85,6 +87,7 @@
   "popupUnassignedCloseAll": { "message": "全部关闭" },
   "popupUnassignedRemindLater": { "message": "暂不" },
   "popupNewTask": { "message": "+ 新建任务" },
+  "dashboardNewTaskButton": { "message": "+ 新建任务" },
   "popupProCta": { "message": "解锁更多功能 ->" },
   "popupStashedState": {
     "message": "已暂存 $COUNT$ 个标签页",
@@ -157,6 +160,7 @@
   "assignPromptAssignSuggested": { "message": "分配" },
   "assignPromptNotNow": { "message": "暂不" },
   "assignPromptSkip": { "message": "跳过" },
+  "assignPromptSkipForever": { "message": "永久跳过（所有网站）" },
   "assignPromptIgnoreDomain": { "message": "总是忽略此网站" },
   "duplicateTabTitle": { "message": "该网页已在其他标签页打开。" },
   "duplicateTabHint": { "message": "可切换到已有标签页，或同时保留两个标签页。" },
@@ -220,6 +224,49 @@
   },
   "pinnedLinkNotFound": { "message": "未找到该常用链接。" },
   "dashboardNavPinned": { "message": "常用链接" },
+  "dashboardNavAssignPromptSkip": { "message": "跳过 URL 列表" },
+  "dashboardNavTaskGroups": { "message": "任务管理" },
+  "dashboardSkipUrlListTitle": { "message": "跳过 URL 列表" },
+  "dashboardSkipUrlListIntro": {
+    "message": "列表中的 URL 片段会匹配标签页地址（不区分大小写的包含关系）。匹配的标签不再弹出分配提示；若指定任务，则会自动归入该任务。"
+  },
+  "dashboardSkipUrlListColumnUrl": { "message": "URL 片段" },
+  "dashboardSkipUrlListColumnTask": { "message": "任务" },
+  "dashboardSkipUrlListColumnActions": { "message": "操作" },
+  "dashboardSkipUrlListAdd": { "message": "添加" },
+  "dashboardSkipUrlListRemove": { "message": "删除" },
+  "dashboardSkipUrlListEmpty": { "message": "暂无规则。添加 URL 片段后，包含该片段的标签将跳过弹窗。" },
+  "dashboardSkipUrlListNoWorkspace": { "message": "仅跳过弹窗" },
+  "dashboardSkipUrlListPatternPlaceholder": { "message": "例如 github.com 或路径" },
+  "dashboardSkipUrlListSettingsHint": {
+    "message": "全局「自动分配提示」开关与按域名忽略列表请在「设置」中管理。"
+  },
+  "dashboardAssignPromptSkipTitle": { "message": "分配提示与永久跳过" },
+  "dashboardAssignPromptSkipIntro": {
+    "message": "当网页上出现「归属哪个任务？」时：跳过 = 仅本次；永久跳过（所有网站）= 所有网站都不再弹出，直到在下方重新打开开关；始终忽略此网站 = 只忽略当前域名。本页用于恢复提示与管理忽略列表。"
+  },
+  "dashboardAssignPromptSkipToggleHint": {
+    "message": "开启后，未分类的新标签页会再次显示分配提示。"
+  },
+  "dashboardAssignPromptSkipIgnoredHint": {
+    "message": "在网页提示里选择「始终忽略此网站」的域名会出现在此，删除即可恢复该站的提示。"
+  },
+  "dashboardTaskGroupsPromptNavHint": {
+    "message": "按 URL 跳过分配弹窗并可绑定任务，请使用侧栏「跳过 URL 列表」。"
+  },
+  "dashboardTaskGroupsIntro": {
+    "message": "在此添加或删除任务（工作区），或将某个任务下所有打开的标签页批量移到其他任务。"
+  },
+  "dashboardReassignAllOpenTabs": { "message": "将所有打开的标签页移到…" },
+  "dashboardReassignAllTabsConfirm": {
+    "message": "将「$FROM$」下所有打开的标签页移动到「$TO$」吗？",
+    "placeholders": {
+      "from": { "content": "$1" },
+      "to": { "content": "$2" }
+    }
+  },
+  "dashboardReassignAllNoTabs": { "message": "该任务下当前没有打开的标签页。" },
+  "dashboardTaskGroupsOpenSettings": { "message": "打开完整设置" },
   "assignConsolidateWindowsPrompt": {
     "message": "该任务在其他浏览器窗口中已有 $COUNT$ 个标签页。是否将当前标签页移动到那个窗口，以便在同一窗口内合并分组？",
     "placeholders": { "count": { "content": "$1" } }
@@ -229,7 +276,22 @@
   "assignPromptPinSave": { "message": "保存" },
   "loading": { "message": "加载中..." },
   "feedbackLink": { "message": "💬 反馈建议" },
-  "feedbackUrl": { "message": "https://flox.app/feedback" },
+  "feedbackPageTitle": { "message": "反馈" },
+  "feedbackPageSubtitle": {
+    "message": "填写表单后提交，将打开系统邮件客户端，草稿发往 xinjiew1112@gmail.com。"
+  },
+  "feedbackFormSubject": { "message": "主题" },
+  "feedbackFormMessage": { "message": "内容" },
+  "feedbackFormMessagePlaceholder": { "message": "请描述问题、建议或疑问…" },
+  "feedbackFormEmailOptional": { "message": "你的邮箱（选填，方便回复）" },
+  "feedbackFormSubmit": { "message": "通过邮件客户端发送" },
+  "feedbackFormNote": {
+    "message": "若未自动打开邮件，请手动发邮件至 xinjiew1112@gmail.com，并附上相同内容。"
+  },
+  "feedbackDefaultSubject": { "message": "Flox 扩展反馈" },
+  "feedbackBodyContactLine": { "message": "回复联系方式：" },
+  "feedbackBodyFooter": { "message": "— Flox 浏览器扩展" },
+  "feedbackOpenDashboard": { "message": "打开 Flox 仪表盘" },
   "settingsIdleThreshold": { "message": "空闲提醒阈值" },
   "settingsDisabled": { "message": "关闭" },
   "settingsTabWarningThreshold": { "message": "标签页数量警告阈值" },

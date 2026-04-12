@@ -2,6 +2,8 @@
   "appName": { "message": "Flox" },
   "appDescription": { "message": "Flox - Smart Tab Manager for Focused Work." },
   "tagline": { "message": "Smart Tab Manager for Focused Work" },
+  "themeSwitchToLight": { "message": "Switch to light theme" },
+  "themeSwitchToDark": { "message": "Switch to dark theme" },
   "openDashboard": { "message": "Open Dashboard" },
   "contextMenuOpenDashboard": { "message": "Open Flox Dashboard" },
   "contextMenuAssignTo": { "message": "Flox: Assign to..." },
@@ -85,6 +87,7 @@
   "popupUnassignedCloseAll": { "message": "Close all" },
   "popupUnassignedRemindLater": { "message": "Not now" },
   "popupNewTask": { "message": "+ New Task" },
+  "dashboardNewTaskButton": { "message": "+ New Task" },
   "popupProCta": { "message": "Unlock more features ->" },
   "popupStashedState": {
     "message": "Stashed $COUNT$ tabs",
@@ -157,6 +160,7 @@
   "assignPromptAssignSuggested": { "message": "Assign" },
   "assignPromptNotNow": { "message": "Not now" },
   "assignPromptSkip": { "message": "Skip" },
+  "assignPromptSkipForever": { "message": "Skip forever (all sites)" },
   "assignPromptIgnoreDomain": { "message": "Always ignore this site" },
   "duplicateTabTitle": { "message": "This page is already open in another tab." },
   "duplicateTabHint": { "message": "Switch to the existing tab or keep both tabs open." },
@@ -220,6 +224,51 @@
   },
   "pinnedLinkNotFound": { "message": "Pinned link not found." },
   "dashboardNavPinned": { "message": "Pinned" },
+  "dashboardNavAssignPromptSkip": { "message": "Skip URL list" },
+  "dashboardNavTaskGroups": { "message": "Task manager" },
+  "dashboardSkipUrlListTitle": { "message": "Skip URL list" },
+  "dashboardSkipUrlListIntro": {
+    "message": "Matching tabs skip the assign popup (treated as handled). If you choose a task, tabs whose URL contains the pattern are assigned to that task. Matching is case-insensitive substring (e.g. reddit.com or a path segment)."
+  },
+  "dashboardSkipUrlListColumnUrl": { "message": "URL pattern" },
+  "dashboardSkipUrlListColumnTask": { "message": "Task" },
+  "dashboardSkipUrlListColumnActions": { "message": "Actions" },
+  "dashboardSkipUrlListAdd": { "message": "Add" },
+  "dashboardSkipUrlListRemove": { "message": "Remove" },
+  "dashboardSkipUrlListEmpty": {
+    "message": "No patterns yet. Add a URL fragment; tabs containing it will skip the popup."
+  },
+  "dashboardSkipUrlListNoWorkspace": { "message": "Skip popup only" },
+  "dashboardSkipUrlListPatternPlaceholder": { "message": "e.g. github.com or path" },
+  "dashboardSkipUrlListSettingsHint": {
+    "message": "Turn the assign prompt on/off for new tabs and manage ignored domains in Settings."
+  },
+  "dashboardAssignPromptSkipTitle": { "message": "Assign prompt & permanent skip" },
+  "dashboardAssignPromptSkipIntro": {
+    "message": "When Flox asks which task a tab belongs to: Skip = this tab only. Skip forever (all sites) = stop showing the prompt everywhere until you turn it back on below. Always ignore this site = only that domain. This page restores prompts and edits the ignored list."
+  },
+  "dashboardAssignPromptSkipToggleHint": {
+    "message": "Enable to show the assignment prompt again for new unclassified tabs."
+  },
+  "dashboardAssignPromptSkipIgnoredHint": {
+    "message": "Sites you chose \"Always ignore\" in the on-page prompt. Remove a domain to allow prompts there again."
+  },
+  "dashboardTaskGroupsPromptNavHint": {
+    "message": "Skip the assign popup for specific URLs and optionally bind them to a task — use Skip URL list in the sidebar."
+  },
+  "dashboardTaskGroupsIntro": {
+    "message": "Create or delete tasks (workspaces) and bulk-move all open tabs from one task to another."
+  },
+  "dashboardReassignAllOpenTabs": { "message": "Move all open tabs to…" },
+  "dashboardReassignAllTabsConfirm": {
+    "message": "Move all open tabs from $FROM$ to $TO$?",
+    "placeholders": {
+      "from": { "content": "$1" },
+      "to": { "content": "$2" }
+    }
+  },
+  "dashboardReassignAllNoTabs": { "message": "There are no open tabs in this task." },
+  "dashboardTaskGroupsOpenSettings": { "message": "Open full settings" },
   "assignConsolidateWindowsPrompt": {
     "message": "This workspace already has $COUNT$ tab(s) in another browser window. Move this tab there so all tabs stay in one window and group together?",
     "placeholders": { "count": { "content": "$1" } }
@@ -229,7 +278,22 @@
   "assignPromptPinSave": { "message": "Save" },
   "loading": { "message": "Loading..." },
   "feedbackLink": { "message": "💬 Feedback" },
-  "feedbackUrl": { "message": "https://flox.app/feedback" },
+  "feedbackPageTitle": { "message": "Feedback" },
+  "feedbackPageSubtitle": {
+    "message": "Fill in the form and submit. Your email app will open with a draft to xinjiew1112@gmail.com."
+  },
+  "feedbackFormSubject": { "message": "Subject" },
+  "feedbackFormMessage": { "message": "Message" },
+  "feedbackFormMessagePlaceholder": { "message": "Describe the issue, idea, or question…" },
+  "feedbackFormEmailOptional": { "message": "Your email (optional, if you want a reply)" },
+  "feedbackFormSubmit": { "message": "Send via email app" },
+  "feedbackFormNote": {
+    "message": "If nothing opened, send email manually to xinjiew1112@gmail.com with the same text."
+  },
+  "feedbackDefaultSubject": { "message": "Flox extension feedback" },
+  "feedbackBodyContactLine": { "message": "Reply contact:" },
+  "feedbackBodyFooter": { "message": "— Flox browser extension" },
+  "feedbackOpenDashboard": { "message": "Open Flox dashboard" },
   "settingsIdleThreshold": { "message": "Idle reminder threshold" },
   "settingsDisabled": { "message": "Disabled" },
   "settingsTabWarningThreshold": { "message": "Tab warning threshold" },

@@ -41,8 +41,16 @@ const STORAGE_KEYS = {
   workspaces: "flox.workspaces",
   tabRecords: "flox.tabRecords",
   savedSessions: "flox.savedSessions",
-  pinnedLinks: "flox.pinnedLinks"
+  pinnedLinks: "flox.pinnedLinks",
+  skipUrlRules: "flox.skipUrlRules"
 } as const;
+
+export interface SkipUrlRule {
+  id: string;
+  urlPattern: string;
+  workspaceId: string | null;
+  createdAt: number;
+}
 
 export interface SavedSession {
   savedAt: number;
@@ -176,6 +184,58 @@ export async function deleteWorkspace(workspaceId: string): Promise<void> {
     link.workspaceId === workspaceId ? { ...link, workspaceId: null } : link
   );
   await setPinnedLinks(nextPinned);
+
+  const skips = await getSkipUrlRules();
+  if (skips.some((r) => r.workspaceId === workspaceId)) {
+    await setSkipUrlRules(skips.map((r) => (r.workspaceId === workspaceId ? { ...r, workspaceId: null } : r)));
+  }
+}
+
+export async function getSkipUrlRules(): Promise<SkipUrlRule[]> {
+  const list = await storageGet<SkipUrlRule[]>(STORAGE_KEYS.skipUrlRules, []);
+  return [...list].sort((a, b) => a.createdAt - b.createdAt);
+}
+
+export async function setSkipUrlRules(rules: SkipUrlRule[]): Promise<void> {
+  await storageSet({ [STORAGE_KEYS.skipUrlRules]: rules });
+}
+
+export async function addSkipUrlRule(input: { urlPattern: string; workspaceId: string | null }): Promise<SkipUrlRule> {
+  const list = await getSkipUrlRules();
+  const now = Date.now();
+  const rule: SkipUrlRule = {
+    id: createUuid(),
+    urlPattern: input.urlPattern.trim(),
+    workspaceId: input.workspaceId,
+    createdAt: now
+  };
+  await setSkipUrlRules([...list, rule]);
+  return rule;
+}
+
+export async function updateSkipUrlRule(
+  id: string,
+  updates: Partial<Pick<SkipUrlRule, "urlPattern" | "workspaceId">>
+): Promise<SkipUrlRule> {
+  const list = await getSkipUrlRules();
+  const index = list.findIndex((r) => r.id === id);
+  if (index < 0) {
+    throw new Error("SKIP_URL_NOT_FOUND");
+  }
+  const prev = list[index];
+  const next: SkipUrlRule = {
+    ...prev,
+    ...updates,
+    urlPattern: updates.urlPattern !== undefined ? updates.urlPattern.trim() : prev.urlPattern
+  };
+  list[index] = next;
+  await setSkipUrlRules(list);
+  return next;
+}
+
+export async function removeSkipUrlRule(id: string): Promise<void> {
+  const list = await getSkipUrlRules();
+  await setSkipUrlRules(list.filter((r) => r.id !== id));
 }
 
 export async function getPinnedLinks(): Promise<PinnedLink[]> {

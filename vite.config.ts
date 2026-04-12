@@ -64,11 +64,22 @@ const manifest = defineManifest({
 
 export default defineConfig({
   plugins: [react(), crx({ manifest })],
+  // CRXJS + extension pages: without an explicit port, Vite injects ws://localhost:undefined for HMR.
+  server: {
+    port: 5173,
+    strictPort: true,
+    hmr: {
+      host: "localhost",
+      port: 5173,
+      clientPort: 5173
+    }
+  },
   build: {
     rollupOptions: {
       input: {
         popup: "popup.html",
-        dashboard: "dashboard.html"
+        dashboard: "dashboard.html",
+        feedback: "feedback.html"
       }
     }
   }

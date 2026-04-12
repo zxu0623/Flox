@@ -1,0 +1,934 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Flox — Design Preview</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:ital,wght@0,300;0,400;0,500;0,600;0,700;1,400&display=swap" rel="stylesheet" />
+    <style>
+      * { box-sizing: border-box; margin: 0; padding: 0; }
+      :root {
+        --bg:       #09090b;
+        --surface:  #18181b;
+        --raised:   #27272a;
+        --border:   #27272a;
+        --text:     #f4f4f5;
+        --muted:    #a1a1aa;
+        --dim:      #52525b;
+        --accent:   #fbbf24;
+      }
+      body {
+        background: #0f0f10;
+        font-family: 'Plus Jakarta Sans', ui-sans-serif, system-ui, sans-serif;
+        color: var(--text);
+        -webkit-font-smoothing: antialiased;
+        letter-spacing: -0.01em;
+        padding: 40px 32px;
+        min-height: 100vh;
+      }
+      h1.page-title {
+        font-size: 13px;
+        font-weight: 600;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: var(--dim);
+        margin-bottom: 32px;
+      }
+      .preview-row {
+        display: flex;
+        gap: 40px;
+        flex-wrap: wrap;
+        align-items: flex-start;
+      }
+      .preview-label {
+        font-size: 11px;
+        font-weight: 600;
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+        color: var(--dim);
+        margin-bottom: 12px;
+      }
+
+      /* ─── Scrollbars ─────────────────────────────── */
+      ::-webkit-scrollbar { width: 4px; height: 4px; }
+      ::-webkit-scrollbar-track { background: transparent; }
+      ::-webkit-scrollbar-thumb { background: #3f3f46; border-radius: 2px; }
+
+      /* ─── POPUP ──────────────────────────────────── */
+      .popup {
+        width: 380px;
+        height: 500px;
+        overflow-y: auto;
+        background: var(--bg);
+        border-radius: 12px;
+        border: 1px solid #27272a;
+        padding: 12px;
+        color: var(--text);
+        flex-shrink: 0;
+        box-shadow: 0 20px 60px rgba(0,0,0,0.6);
+      }
+      .popup header {
+        position: sticky;
+        top: 0;
+        z-index: 10;
+        background: rgba(9,9,11,0.95);
+        padding-bottom: 8px;
+        backdrop-filter: blur(8px);
+      }
+      .popup-topbar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+      }
+      .popup-title {
+        font-size: 20px;
+        font-weight: 700;
+        letter-spacing: -0.04em;
+        color: #fafafa;
+      }
+      .btn-accent {
+        background: var(--accent);
+        color: #09090b;
+        font-weight: 600;
+        font-size: 11px;
+        border: none;
+        border-radius: 6px;
+        padding: 4px 10px;
+        cursor: pointer;
+        font-family: inherit;
+        letter-spacing: -0.01em;
+      }
+      .btn-accent:hover { background: #fcd34d; }
+      .popup-meta {
+        font-size: 11px;
+        color: var(--muted);
+        margin-top: 4px;
+      }
+      .tab-bar {
+        display: flex;
+        gap: 20px;
+        border-bottom: 1px solid rgba(39,39,42,0.8);
+        font-size: 12px;
+        font-weight: 500;
+        margin-top: 8px;
+      }
+      .tab-btn {
+        padding-bottom: 8px;
+        border: none;
+        background: none;
+        color: var(--dim);
+        cursor: pointer;
+        font-family: inherit;
+        font-size: 12px;
+        font-weight: 500;
+      }
+      .tab-btn.active {
+        color: var(--text);
+        border-bottom: 2px solid var(--accent);
+      }
+      .pin-btn {
+        margin-top: 8px;
+        width: 100%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 6px;
+        background: var(--accent);
+        color: #09090b;
+        border: none;
+        border-radius: 8px;
+        padding: 9px 12px;
+        font-size: 13px;
+        font-weight: 600;
+        cursor: pointer;
+        font-family: inherit;
+        letter-spacing: -0.01em;
+        box-shadow: 0 2px 8px rgba(251,191,36,0.25);
+      }
+      .pin-btn:hover { background: #fcd34d; }
+      .ws-card {
+        background: rgba(24,24,27,0.5);
+        border: 1px solid rgba(39,39,42,0.7);
+        border-radius: 8px;
+        padding: 8px;
+        margin-top: 8px;
+      }
+      .ws-header {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+      .ws-dot {
+        width: 8px; height: 8px;
+        border-radius: 50%;
+        flex-shrink: 0;
+      }
+      .ws-name {
+        font-size: 13px;
+        font-weight: 500;
+        flex: 1;
+        min-width: 0;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .ws-count {
+        font-size: 11px;
+        color: var(--muted);
+      }
+      .ws-bar-track {
+        height: 2px;
+        background: var(--raised);
+        border-radius: 1px;
+        margin-top: 6px;
+        overflow: hidden;
+      }
+      .ws-bar-fill {
+        height: 100%;
+        border-radius: 1px;
+        transition: width 0.3s;
+      }
+      .ws-actions {
+        display: flex;
+        gap: 4px;
+        margin-top: 8px;
+      }
+      .btn-ghost {
+        border: 1px solid rgba(63,63,70,0.8);
+        background: none;
+        color: var(--muted);
+        font-size: 10px;
+        border-radius: 5px;
+        padding: 3px 8px;
+        cursor: pointer;
+        font-family: inherit;
+        font-weight: 500;
+      }
+      .btn-ghost:hover { background: rgba(39,39,42,0.6); color: var(--text); }
+      .idle-section {
+        background: rgba(120,53,15,0.12);
+        border: 1px solid rgba(217,119,6,0.3);
+        border-radius: 8px;
+        padding: 8px;
+        margin-top: 8px;
+      }
+      .idle-chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        background: rgba(217,119,6,0.1);
+        border: 1px solid rgba(217,119,6,0.3);
+        border-radius: 20px;
+        padding: 3px 8px;
+        font-size: 11px;
+        color: #fef3c7;
+      }
+      .footer-card {
+        background: rgba(24,24,27,0.4);
+        border: 1px solid rgba(39,39,42,0.6);
+        border-radius: 8px;
+        padding: 8px;
+        margin-top: 8px;
+      }
+      .footer-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        font-size: 12px;
+      }
+      .footer-new-task {
+        border: 1px solid rgba(63,63,70,0.8);
+        background: none;
+        color: var(--muted);
+        font-size: 12px;
+        border-radius: 5px;
+        padding: 4px 10px;
+        cursor: pointer;
+        font-family: inherit;
+        font-weight: 500;
+        margin-top: 8px;
+      }
+      .footer-new-task:hover { background: rgba(39,39,42,0.6); color: var(--text); }
+      .feedback-link {
+        font-size: 11px;
+        color: var(--accent);
+        margin-top: 8px;
+        cursor: pointer;
+      }
+
+      /* ─── DASHBOARD ──────────────────────────────── */
+      .dashboard {
+        display: flex;
+        min-height: 560px;
+        background: var(--bg);
+        border-radius: 12px;
+        border: 1px solid #27272a;
+        overflow: hidden;
+        box-shadow: 0 20px 60px rgba(0,0,0,0.6);
+        flex: 1;
+        min-width: 700px;
+      }
+      .dash-sidebar {
+        width: 220px;
+        flex-shrink: 0;
+        background: rgba(24,24,27,0.5);
+        border-right: 1px solid rgba(39,39,42,0.6);
+        padding: 12px;
+        display: flex;
+        flex-direction: column;
+      }
+      .dash-brand {
+        padding: 0 4px;
+        margin-bottom: 16px;
+      }
+      .dash-brand h1 {
+        font-size: 18px;
+        font-weight: 700;
+        letter-spacing: -0.04em;
+        color: #fafafa;
+      }
+      .dash-brand p {
+        font-size: 11px;
+        color: var(--dim);
+        margin-top: 2px;
+      }
+      .nav-item {
+        display: block;
+        width: 100%;
+        text-align: left;
+        padding: 6px 10px;
+        border-radius: 6px;
+        font-size: 13px;
+        font-weight: 500;
+        border: none;
+        background: none;
+        color: var(--dim);
+        cursor: pointer;
+        font-family: inherit;
+        transition: all 0.1s;
+        margin-bottom: 1px;
+      }
+      .nav-item:hover { background: rgba(39,39,42,0.6); color: #d4d4d8; }
+      .nav-item.active { background: var(--raised); color: var(--text); }
+      .nav-section-label {
+        font-size: 10px;
+        font-weight: 600;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        color: #3f3f46;
+        padding: 0 4px;
+        margin: 12px 0 6px;
+      }
+      .nav-new-ws {
+        width: 100%;
+        text-align: left;
+        padding: 6px 10px;
+        border-radius: 6px;
+        font-size: 13px;
+        font-weight: 500;
+        border: 1px solid rgba(63,63,70,0.6);
+        background: none;
+        color: var(--dim);
+        cursor: pointer;
+        font-family: inherit;
+        margin-bottom: 6px;
+      }
+      .nav-new-ws:hover { background: rgba(39,39,42,0.4); color: #d4d4d8; border-color: #52525b; }
+      .nav-ws-item {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 6px 10px;
+        border-radius: 6px;
+        font-size: 13px;
+        font-weight: 500;
+        cursor: pointer;
+        color: var(--dim);
+        margin-bottom: 1px;
+        transition: all 0.1s;
+      }
+      .nav-ws-item:hover { background: rgba(39,39,42,0.4); color: #d4d4d8; }
+      .nav-ws-item.active { background: var(--raised); color: var(--text); }
+      .nav-ws-count { margin-left: auto; font-size: 11px; color: var(--dim); }
+      .nav-pro {
+        margin-top: auto;
+        border: 1px solid rgba(251,191,36,0.2);
+        background: rgba(120,53,15,0.15);
+        border-radius: 8px;
+        padding: 8px 10px;
+        font-size: 13px;
+        font-weight: 500;
+        color: #fde68a;
+        cursor: pointer;
+        font-family: inherit;
+        text-align: left;
+        width: 100%;
+        margin-top: 12px;
+      }
+      .nav-pro:hover { background: rgba(120,53,15,0.25); }
+      .lang-section {
+        border-top: 1px solid rgba(39,39,42,0.6);
+        padding-top: 12px;
+        margin-top: 8px;
+      }
+      .lang-label { font-size: 11px; color: #3f3f46; }
+      .lang-select {
+        width: 100%;
+        margin-top: 4px;
+        background: var(--bg);
+        border: 1px solid rgba(63,63,70,0.6);
+        border-radius: 6px;
+        padding: 5px 8px;
+        font-size: 12px;
+        color: var(--muted);
+        font-family: inherit;
+        outline: none;
+      }
+      .dash-main {
+        flex: 1;
+        padding: 24px;
+        overflow-y: auto;
+        min-width: 0;
+      }
+      .dash-section-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 16px;
+      }
+      .dash-section-header h2 {
+        font-size: 22px;
+        font-weight: 700;
+        letter-spacing: -0.04em;
+        color: #fafafa;
+      }
+      .overview-bars { margin-bottom: 20px; }
+      .bar-row {
+        margin-bottom: 8px;
+      }
+      .bar-meta {
+        display: flex;
+        justify-content: space-between;
+        font-size: 12px;
+        color: var(--muted);
+        margin-bottom: 3px;
+      }
+      .bar-track {
+        height: 3px;
+        background: var(--raised);
+        border-radius: 2px;
+        overflow: hidden;
+      }
+      .bar-fill {
+        height: 100%;
+        border-radius: 2px;
+        transition: width 0.4s;
+      }
+      .cards-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+        gap: 10px;
+      }
+      .ws-card-dash {
+        background: rgba(24,24,27,0.5);
+        border: 1px solid rgba(39,39,42,0.6);
+        border-radius: 8px;
+        padding: 12px;
+        transition: border-color 0.15s;
+      }
+      .ws-card-dash:hover { border-color: #3f3f46; }
+      .ws-card-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        font-size: 14px;
+        font-weight: 500;
+      }
+      .ws-card-title {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+      .ws-card-count { font-size: 12px; color: var(--dim); }
+      .ws-card-favicons {
+        display: flex;
+        gap: 6px;
+        margin-top: 10px;
+      }
+      .fav-placeholder {
+        width: 18px; height: 18px;
+        background: var(--raised);
+        border-radius: 4px;
+      }
+      .tab-item {
+        display: flex;
+        align-items: flex-start;
+        gap: 8px;
+        background: rgba(24,24,27,0.5);
+        border: 1px solid rgba(39,39,42,0.6);
+        border-radius: 8px;
+        padding: 10px 12px;
+        margin-bottom: 8px;
+        transition: border-color 0.15s, transform 0.2s;
+      }
+      .tab-item:hover { border-color: #3f3f46; transform: translateY(-1px); }
+      .tab-content { flex: 1; min-width: 0; }
+      .tab-title {
+        font-size: 13px;
+        color: var(--text);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .tab-domain {
+        font-size: 11px;
+        color: var(--accent);
+        margin-top: 2px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .tab-time { font-size: 11px; color: var(--dim); margin-top: 4px; }
+      .stale-badge {
+        font-size: 10px;
+        color: #fca5a5;
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        margin-top: 6px;
+      }
+      .stale-dot { width: 6px; height: 6px; background: #ef4444; border-radius: 50%; }
+
+      /* Unassigned view */
+      .ua-item {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        background: rgba(24,24,27,0.5);
+        border: 1px solid rgba(39,39,42,0.6);
+        border-radius: 6px;
+        padding: 8px 10px;
+        margin-bottom: 6px;
+      }
+      .ua-favicon {
+        width: 16px; height: 16px;
+        background: var(--raised);
+        border-radius: 3px;
+        flex-shrink: 0;
+      }
+      .ua-title { font-size: 12px; flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      .ua-domain { font-size: 11px; color: var(--dim); }
+      .assign-select {
+        background: var(--bg);
+        border: 1px solid rgba(63,63,70,0.6);
+        border-radius: 5px;
+        padding: 3px 6px;
+        font-size: 11px;
+        color: var(--muted);
+        font-family: inherit;
+        outline: none;
+        flex-shrink: 0;
+      }
+    </style>
+  </head>
+  <body>
+    <p class="page-title">Flox — UI Redesign Preview</p>
+
+    <div class="preview-row">
+
+      <!-- POPUP -->
+      <div>
+        <p class="preview-label">Popup (380×500)</p>
+        <div class="popup">
+          <header>
+            <div class="popup-topbar">
+              <span class="popup-title">Flox</span>
+              <button class="btn-accent">Dashboard →</button>
+            </div>
+            <p class="popup-meta">24 tabs open</p>
+            <div class="tab-bar">
+              <button class="tab-btn active">Tabs</button>
+              <button class="tab-btn">Pinned</button>
+            </div>
+            <button class="pin-btn">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M17 3H7a2 2 0 0 0-2 2v16l7-3.33L19 21V5a2 2 0 0 0-2-2Z"/></svg>
+              Pin current tab
+            </button>
+          </header>
+
+          <!-- Idle alert -->
+          <div class="idle-section" style="margin-top:8px">
+            <div style="display:flex;align-items:center;justify-content:space-between;gap:8px">
+              <div style="display:flex;gap:6px;overflow-x:auto;padding:2px 0">
+                <span class="idle-chip">
+                  <span style="width:6px;height:6px;border-radius:50%;background:#6366f1;flex-shrink:0"></span>
+                  Work · 3 tabs
+                  <span style="cursor:pointer;color:#fde68a;margin-left:2px">×</span>
+                </span>
+                <span class="idle-chip">
+                  <span style="width:6px;height:6px;border-radius:50%;background:#10b981;flex-shrink:0"></span>
+                  Reading · 2 tabs
+                  <span style="cursor:pointer;color:#fde68a;margin-left:2px">×</span>
+                </span>
+              </div>
+              <button class="btn-ghost" style="flex-shrink:0;font-size:10px">Clean all</button>
+            </div>
+          </div>
+
+          <!-- Workspace cards -->
+          <div style="margin-top:12px">
+            <!-- Work -->
+            <div class="ws-card">
+              <div class="ws-header">
+                <span class="ws-dot" style="background:#6366f1"></span>
+                <span class="ws-name">Work</span>
+                <span class="ws-count">8</span>
+              </div>
+              <div class="ws-bar-track"><div class="ws-bar-fill" style="width:80%;background:#6366f1"></div></div>
+              <div class="ws-actions">
+                <button class="btn-ghost">Stash</button>
+                <button class="btn-ghost">Close all</button>
+                <button class="btn-ghost">Expand</button>
+              </div>
+            </div>
+            <!-- Design -->
+            <div class="ws-card">
+              <div class="ws-header">
+                <span class="ws-dot" style="background:#ec4899"></span>
+                <span class="ws-name">Design</span>
+                <span class="ws-count">5</span>
+              </div>
+              <div class="ws-bar-track"><div class="ws-bar-fill" style="width:50%;background:#ec4899"></div></div>
+              <div class="ws-actions">
+                <button class="btn-ghost">Stash</button>
+                <button class="btn-ghost">Close all</button>
+                <button class="btn-ghost">Expand</button>
+              </div>
+            </div>
+            <!-- Research -->
+            <div class="ws-card">
+              <div class="ws-header">
+                <span class="ws-dot" style="background:#10b981"></span>
+                <span class="ws-name">Research</span>
+                <span class="ws-count">3</span>
+              </div>
+              <div class="ws-bar-track"><div class="ws-bar-fill" style="width:30%;background:#10b981"></div></div>
+              <div class="ws-actions">
+                <button class="btn-ghost">Stash</button>
+                <button class="btn-ghost">Close all</button>
+                <button class="btn-ghost">Expand</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Footer -->
+          <div class="footer-card">
+            <div class="footer-row">
+              <span style="font-size:12px">Unassigned</span>
+              <span style="font-size:11px;color:var(--muted)">6</span>
+            </div>
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-top:8px">
+              <button class="footer-new-task">+ New task</button>
+              <span class="feedback-link">Feedback</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- DASHBOARD -->
+      <div style="flex:1;min-width:700px">
+        <p class="preview-label">Dashboard — Overview</p>
+        <div class="dashboard">
+          <!-- Sidebar -->
+          <nav class="dash-sidebar">
+            <div class="dash-brand">
+              <h1>Flox</h1>
+              <p>Your tabs, organized</p>
+            </div>
+            <button class="nav-item active">Overview</button>
+            <button class="nav-item">Unassigned</button>
+            <button class="nav-item">Stashed</button>
+            <button class="nav-item">Stats</button>
+            <button class="nav-item">Pinned</button>
+            <button class="nav-item">Skip URL rules</button>
+            <button class="nav-item">Task groups</button>
+            <button class="nav-item">Settings</button>
+
+            <div class="nav-section-label">Workspaces</div>
+            <button class="nav-new-ws">+ New task</button>
+            <div class="nav-ws-item active">
+              <span style="width:8px;height:8px;border-radius:50%;background:#6366f1;flex-shrink:0"></span>
+              Work
+              <span class="nav-ws-count">8</span>
+            </div>
+            <div class="nav-ws-item">
+              <span style="width:8px;height:8px;border-radius:50%;background:#ec4899;flex-shrink:0"></span>
+              Design
+              <span class="nav-ws-count">5</span>
+            </div>
+            <div class="nav-ws-item">
+              <span style="width:8px;height:8px;border-radius:50%;background:#10b981;flex-shrink:0"></span>
+              Research
+              <span class="nav-ws-count">3</span>
+            </div>
+            <div class="nav-ws-item">
+              <span style="width:8px;height:8px;border-radius:50%;background:#f59e0b;flex-shrink:0"></span>
+              Personal
+              <span class="nav-ws-count">2</span>
+            </div>
+
+            <div class="lang-section">
+              <span class="lang-label">Language</span>
+              <select class="lang-select">
+                <option>Auto</option>
+                <option>English</option>
+                <option>中文</option>
+              </select>
+            </div>
+            <button class="nav-pro">Upgrade to Pro</button>
+          </nav>
+
+          <!-- Main content -->
+          <main class="dash-main">
+            <div class="dash-section-header">
+              <h2>Overview</h2>
+              <button class="btn-accent" style="font-size:12px;padding:6px 14px;border-radius:7px">+ New task</button>
+            </div>
+
+            <!-- Bar chart -->
+            <div class="overview-bars">
+              <div class="bar-row">
+                <div class="bar-meta"><span>Work</span><span>8</span></div>
+                <div class="bar-track"><div class="bar-fill" style="width:80%;background:#6366f1"></div></div>
+              </div>
+              <div class="bar-row">
+                <div class="bar-meta"><span>Design</span><span>5</span></div>
+                <div class="bar-track"><div class="bar-fill" style="width:50%;background:#ec4899"></div></div>
+              </div>
+              <div class="bar-row">
+                <div class="bar-meta"><span>Research</span><span>3</span></div>
+                <div class="bar-track"><div class="bar-fill" style="width:30%;background:#10b981"></div></div>
+              </div>
+              <div class="bar-row">
+                <div class="bar-meta"><span>Personal</span><span>2</span></div>
+                <div class="bar-track"><div class="bar-fill" style="width:20%;background:#f59e0b"></div></div>
+              </div>
+            </div>
+
+            <!-- Workspace cards -->
+            <div class="cards-grid">
+              <!-- Work card (expanded) -->
+              <div class="ws-card-dash" style="grid-column: span 2">
+                <div class="ws-card-header">
+                  <div class="ws-card-title">
+                    <span style="width:8px;height:8px;border-radius:50%;background:#6366f1"></span>
+                    Work
+                  </div>
+                  <span class="ws-card-count">8 tabs ▼</span>
+                </div>
+                <div class="ws-card-favicons">
+                  <div class="fav-placeholder"></div>
+                  <div class="fav-placeholder"></div>
+                  <div class="fav-placeholder"></div>
+                  <div class="fav-placeholder"></div>
+                  <div class="fav-placeholder"></div>
+                </div>
+                <div style="border-top:1px solid rgba(39,39,42,0.6);margin-top:10px;padding-top:10px">
+                  <div class="tab-item">
+                    <div class="tab-content">
+                      <div class="tab-title">GitHub — Pull Requests</div>
+                      <div class="tab-domain">github.com</div>
+                      <div class="tab-time">2 min ago</div>
+                    </div>
+                  </div>
+                  <div class="tab-item">
+                    <div class="tab-content">
+                      <div class="tab-title">Linear — Backlog</div>
+                      <div class="tab-domain">linear.app</div>
+                      <div class="tab-time">15 min ago</div>
+                      <div class="stale-badge"><span class="stale-dot"></span>Idle over 4h</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Design card -->
+              <div class="ws-card-dash">
+                <div class="ws-card-header">
+                  <div class="ws-card-title">
+                    <span style="width:8px;height:8px;border-radius:50%;background:#ec4899"></span>
+                    Design
+                  </div>
+                  <span class="ws-card-count">5 ▶</span>
+                </div>
+                <div class="ws-card-favicons">
+                  <div class="fav-placeholder"></div>
+                  <div class="fav-placeholder"></div>
+                  <div class="fav-placeholder"></div>
+                </div>
+              </div>
+
+              <!-- Research card -->
+              <div class="ws-card-dash">
+                <div class="ws-card-header">
+                  <div class="ws-card-title">
+                    <span style="width:8px;height:8px;border-radius:50%;background:#10b981"></span>
+                    Research
+                  </div>
+                  <span class="ws-card-count">3 ▶</span>
+                </div>
+                <div class="ws-card-favicons">
+                  <div class="fav-placeholder"></div>
+                  <div class="fav-placeholder"></div>
+                </div>
+              </div>
+            </div>
+          </main>
+        </div>
+
+        <!-- Workspace detail view -->
+        <p class="preview-label" style="margin-top:32px">Dashboard — Workspace Detail</p>
+        <div class="dashboard" style="min-height:420px">
+          <nav class="dash-sidebar">
+            <div class="dash-brand">
+              <h1>Flox</h1>
+              <p>Your tabs, organized</p>
+            </div>
+            <button class="nav-item">Overview</button>
+            <button class="nav-item">Unassigned</button>
+            <button class="nav-item">Stashed</button>
+            <button class="nav-item">Stats</button>
+            <button class="nav-item">Pinned</button>
+            <button class="nav-item">Skip URL rules</button>
+            <button class="nav-item">Task groups</button>
+            <button class="nav-item">Settings</button>
+            <div class="nav-section-label">Workspaces</div>
+            <button class="nav-new-ws">+ New task</button>
+            <div class="nav-ws-item active">
+              <span style="width:8px;height:8px;border-radius:50%;background:#6366f1;flex-shrink:0"></span>
+              Work
+              <span class="nav-ws-count">8</span>
+            </div>
+            <div class="nav-ws-item">
+              <span style="width:8px;height:8px;border-radius:50%;background:#ec4899;flex-shrink:0"></span>
+              Design
+              <span class="nav-ws-count">5</span>
+            </div>
+            <div class="nav-ws-item">
+              <span style="width:8px;height:8px;border-radius:50%;background:#10b981;flex-shrink:0"></span>
+              Research
+              <span class="nav-ws-count">3</span>
+            </div>
+          </nav>
+          <main class="dash-main">
+            <div class="dash-section-header" style="margin-bottom:20px">
+              <div style="display:flex;align-items:center;gap:8px">
+                <span style="width:10px;height:10px;border-radius:50%;background:#6366f1"></span>
+                <h2>Work</h2>
+                <span style="font-size:13px;color:var(--muted)">8 tabs</span>
+              </div>
+              <div style="display:flex;gap:6px">
+                <button class="btn-ghost">Edit</button>
+                <button class="btn-ghost">Stash</button>
+                <button class="btn-ghost">Close all</button>
+              </div>
+            </div>
+            <div class="cards-grid">
+              <div class="tab-item" style="margin-bottom:0">
+                <div class="tab-content">
+                  <div class="tab-title">GitHub — Pull Requests</div>
+                  <div class="tab-domain">github.com</div>
+                  <div class="tab-time">2 min ago</div>
+                </div>
+              </div>
+              <div class="tab-item" style="margin-bottom:0">
+                <div class="tab-content">
+                  <div class="tab-title">Figma — Components</div>
+                  <div class="tab-domain">figma.com</div>
+                  <div class="tab-time">8 min ago</div>
+                </div>
+              </div>
+              <div class="tab-item" style="margin-bottom:0">
+                <div class="tab-content">
+                  <div class="tab-title">Linear — Sprint Board</div>
+                  <div class="tab-domain">linear.app</div>
+                  <div class="tab-time">1 hr ago</div>
+                  <div class="stale-badge"><span class="stale-dot"></span>Idle &gt;1h</div>
+                </div>
+              </div>
+              <div class="tab-item" style="margin-bottom:0">
+                <div class="tab-content">
+                  <div class="tab-title">Notion — Project Docs</div>
+                  <div class="tab-domain">notion.so</div>
+                  <div class="tab-time">3 hr ago</div>
+                  <div class="stale-badge"><span class="stale-dot"></span>Idle &gt;4h</div>
+                </div>
+              </div>
+            </div>
+          </main>
+        </div>
+
+        <!-- Unassigned view -->
+        <p class="preview-label" style="margin-top:32px">Dashboard — Unassigned Tabs</p>
+        <div class="dashboard" style="min-height:320px">
+          <nav class="dash-sidebar">
+            <div class="dash-brand"><h1>Flox</h1><p>Your tabs, organized</p></div>
+            <button class="nav-item">Overview</button>
+            <button class="nav-item active">Unassigned</button>
+            <button class="nav-item">Stashed</button>
+            <button class="nav-item">Stats</button>
+          </nav>
+          <main class="dash-main">
+            <div class="dash-section-header">
+              <h2>Unassigned</h2>
+            </div>
+            <div>
+              <div class="ua-item">
+                <div class="ua-favicon"></div>
+                <div style="flex:1;min-width:0">
+                  <div class="ua-title">Stack Overflow — How to center a div</div>
+                  <div class="ua-domain">stackoverflow.com</div>
+                </div>
+                <select class="assign-select">
+                  <option>Assign to…</option>
+                  <option>Work</option>
+                  <option>Design</option>
+                  <option>Research</option>
+                </select>
+              </div>
+              <div class="ua-item">
+                <div class="ua-favicon"></div>
+                <div style="flex:1;min-width:0">
+                  <div class="ua-title">MDN Web Docs — CSS Grid</div>
+                  <div class="ua-domain">developer.mozilla.org</div>
+                </div>
+                <select class="assign-select">
+                  <option>Assign to…</option>
+                  <option>Work</option>
+                  <option>Design</option>
+                  <option>Research</option>
+                </select>
+              </div>
+              <div class="ua-item">
+                <div class="ua-favicon"></div>
+                <div style="flex:1;min-width:0">
+                  <div class="ua-title">YouTube — Playlist</div>
+                  <div class="ua-domain">youtube.com</div>
+                </div>
+                <select class="assign-select">
+                  <option>Assign to…</option>
+                  <option>Work</option>
+                  <option>Design</option>
+                  <option>Personal</option>
+                </select>
+              </div>
+            </div>
+          </main>
+        </div>
+      </div>
+
+    </div>
+  </body>
+</html>
