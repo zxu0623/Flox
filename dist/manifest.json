@@ -9,7 +9,12 @@
     "storage",
     "tabGroups",
     "contextMenus",
-    "alarms"
+    "alarms",
+    "notifications",
+    "scripting"
+  ],
+  "host_permissions": [
+    "<all_urls>"
   ],
   "icons": {
     "16": "icons/icon-16.png",
@@ -35,12 +40,28 @@
         "mac": "Command+Shift+D"
       },
       "description": "__MSG_commandOpenDashboard__"
+    },
+    "save_pinned": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+P",
+        "mac": "Command+Shift+P"
+      },
+      "description": "__MSG_commandSavePinned__"
     }
   },
   "content_scripts": [
     {
       "js": [
-        "assets/assign-prompt.tsx-loader-DgvRKBaM.js"
+        "assets/assign-prompt.tsx-loader-DUE6vTT6.js"
+      ],
+      "matches": [
+        "<all_urls>"
+      ],
+      "run_at": "document_idle"
+    },
+    {
+      "js": [
+        "assets/duplicate-tab-prompt.tsx-loader-sa3xiKHz.js"
       ],
       "matches": [
         "<all_urls>"
@@ -58,8 +79,10 @@
         "<all_urls>"
       ],
       "resources": [
-        "assets/i18n-DEcFeoyY.js",
-        "assets/assign-prompt.tsx-C6QY9BsC.js"
+        "assets/i18n-2IF4CQE7.js",
+        "assets/plan-BPRw_ehD.js",
+        "assets/assign-prompt.tsx-DqsrukbJ.js",
+        "assets/duplicate-tab-prompt.tsx-vtDnPo6i.js"
       ],
       "use_dynamic_url": false
     }

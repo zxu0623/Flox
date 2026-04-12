@@ -8,7 +8,8 @@ var manifest = defineManifest({
     name: "Flox",
     version: "1.0.0",
     description: "__MSG_appDescription__",
-    permissions: ["tabs", "storage", "tabGroups", "contextMenus", "alarms"],
+    permissions: ["tabs", "storage", "tabGroups", "contextMenus", "alarms", "notifications", "scripting"],
+    host_permissions: ["<all_urls>"],
     icons: {
         "16": "icons/icon-16.png",
         "32": "icons/icon-32.png",
@@ -33,12 +34,24 @@ var manifest = defineManifest({
                 mac: "Command+Shift+D"
             },
             description: "__MSG_commandOpenDashboard__"
+        },
+        save_pinned: {
+            suggested_key: {
+                default: "Ctrl+Shift+P",
+                mac: "Command+Shift+P"
+            },
+            description: "__MSG_commandSavePinned__"
         }
     },
     content_scripts: [
         {
             matches: ["<all_urls>"],
             js: ["src/content/assign-prompt.tsx"],
+            run_at: "document_idle"
+        },
+        {
+            matches: ["<all_urls>"],
+            js: ["src/content/duplicate-tab-prompt.tsx"],
             run_at: "document_idle"
         }
     ],

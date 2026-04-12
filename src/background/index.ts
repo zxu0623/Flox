@@ -1,16 +1,22 @@
 import { getStoredLanguage, t } from "../utils/i18n";
+import { checkFeature, PLAN_LIMITS } from "../utils/plan";
 import {
+  addPinnedLink,
   addWorkspace,
   deleteWorkspace,
+  getPinnedLinks,
   getSavedSessions,
   getTabRecords,
   getWorkspaces,
+  removePinnedLink,
   removeTabRecord,
+  reorderPinnedLinks,
   restoreTabs,
   saveTabs,
   setSavedSessions,
   setTabRecords,
   type TabRecord,
+  updatePinnedLink,
   updateWorkspace,
   updateTabRecord,
   type Workspace
@@ -22,6 +28,7 @@ const DASHBOARD_MENU_ID = "flox-open-dashboard";
 const ASSIGN_ROOT_MENU_ID = "flox-assign-root";
 const ASSIGN_NEW_MENU_ID = "flox-assign-new";
 const ASSIGN_WORKSPACE_PREFIX = "flox-assign-workspace:";
+const PINNED_SAVE_MENU_ID = "flox-save-pinned";
 const TAB_GROUPS_KEY = "flox.workspaceTabGroups";
 const IGNORED_DOMAINS_KEY = "flox.ignoredDomains";
 const TAB_SYNC_ALARM = "flox-tab-sync";
@@ -29,6 +36,81 @@ const DEFAULT_IDLE_THRESHOLD_MINUTES = 120;
 const DEFAULT_TAB_WARNING_THRESHOLD = 20;
 const SETTINGS_KEY = "flox.settings";
 let contextMenuRefreshInFlight: Promise<void> | null = null;
+
+/** Tabs closed via Flox UI — skip post-close “last tab” system notification. */
+const floxInitiatedTabRemovals = new Set<number>();
+const lastWorkspaceNotifyById = new Map<string, { workspaceId: string }>();
+
+function markTabsRemovedByFlox(tabIds: ReadonlyArray<number>): void {
+  for (const id of tabIds) {
+    floxInitiatedTabRemovals.add(id);
+  }
+}
+
+function newLastWorkspaceNotificationId(): string {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return `flox-lwc-${crypto.randomUUID()}`;
+  }
+  return `flox-lwc-${Date.now()}-${Math.random().toString(36).slice(2, 11)}`;
+}
+
+async function notifyLastWorkspaceTabClosed(workspaceId: string): Promise<void> {
+  const workspaces = await getWorkspaces();
+  const ws = workspaces.find((w) => w.id === workspaceId);
+  if (!ws) {
+    return;
+  }
+  const language = await getStoredLanguage();
+  const displayName = t(ws.name, undefined, language);
+  const notificationId = newLastWorkspaceNotificationId();
+  lastWorkspaceNotifyById.set(notificationId, { workspaceId });
+  const options: chrome.notifications.NotificationOptions<true> = {
+    type: "basic",
+    iconUrl: chrome.runtime.getURL("icons/icon-48.png"),
+    title: t("lastTabClosedNotifyTitle", [displayName], language),
+    message: t("lastTabClosedNotifyMessage", undefined, language),
+    buttons: [
+      { title: t("lastTabClosedNotifyKeep", undefined, language) },
+      { title: t("lastWorkspaceTabDeleteWorkspace", undefined, language) }
+    ],
+    priority: 1
+  };
+  await new Promise<void>((resolve) => {
+    try {
+      chrome.notifications.create(notificationId, options, () => {
+        if (chrome.runtime.lastError) {
+          lastWorkspaceNotifyById.delete(notificationId);
+        }
+        resolve();
+      });
+    } catch {
+      lastWorkspaceNotifyById.delete(notificationId);
+      resolve();
+    }
+  });
+}
+
+chrome.notifications.onButtonClicked.addListener((notificationId, buttonIndex) => {
+  safeRun(async () => {
+    const payload = lastWorkspaceNotifyById.get(notificationId);
+    if (!payload) {
+      return;
+    }
+    lastWorkspaceNotifyById.delete(notificationId);
+    void chrome.notifications.clear(notificationId);
+    if (buttonIndex === 1) {
+      try {
+        await finalizeWorkspaceDeletion(payload.workspaceId);
+      } catch {
+        // workspace may already be gone
+      }
+    }
+  });
+});
+
+chrome.notifications.onClosed.addListener((notificationId) => {
+  lastWorkspaceNotifyById.delete(notificationId);
+});
 
 type WorkspaceGroupMap = Record<string, number>;
 type TabGroupColor = "grey" | "blue" | "red" | "yellow" | "green" | "pink" | "purple" | "cyan" | "orange";
@@ -73,22 +155,85 @@ async function notifyAssignPrompt(
     suggestedWorkspaceId?: string;
   }
 ): Promise<void> {
-  for (let attempt = 0; attempt < 4; attempt += 1) {
-    const ok = await chrome.tabs
+  for (let attempt = 0; attempt < 6; attempt += 1) {
+    const response = await chrome.tabs
       .sendMessage(tabId, {
         type: "flox:showAssignPrompt",
         domain: payload.domain,
         workspaces: payload.workspaces,
         suggestedWorkspaceId: payload.suggestedWorkspaceId ?? null
       })
-      .then(() => true)
-      .catch(() => false);
+      .catch(() => null);
 
-    if (ok) {
+    if (isContentScriptAck(response)) {
       return;
     }
-    await sleep(300 + attempt * 200);
+    await sleep(200 + attempt * 250);
   }
+}
+
+function normalizeUrlForDedupe(url: string): string | null {
+  try {
+    const parsed = new URL(url);
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+      return null;
+    }
+    return `${parsed.origin}${parsed.pathname}${parsed.search}`;
+  } catch {
+    return null;
+  }
+}
+
+async function pickDuplicateOtherTabId(currentTabId: number, pageUrl: string): Promise<number | null> {
+  const norm = normalizeUrlForDedupe(pageUrl);
+  if (!norm) {
+    return null;
+  }
+  const tabs = await chrome.tabs.query({});
+  const others: number[] = [];
+  for (const item of tabs) {
+    if (typeof item.id !== "number" || item.id === currentTabId) {
+      continue;
+    }
+    if (!item.url || !item.url.startsWith("http")) {
+      continue;
+    }
+    const otherNorm = normalizeUrlForDedupe(item.url);
+    if (otherNorm === norm) {
+      others.push(item.id);
+    }
+  }
+  if (others.length === 0) {
+    return null;
+  }
+  return Math.min(...others);
+}
+
+function isContentScriptAck(response: unknown): boolean {
+  return typeof response === "object" && response !== null && (response as { ok?: boolean }).ok === true;
+}
+
+async function notifyDuplicateTabPrompt(tabId: number, otherTabId: number): Promise<boolean> {
+  for (let attempt = 0; attempt < 6; attempt += 1) {
+    const response = await chrome.tabs.sendMessage(tabId, { type: "flox:showDuplicateTabPrompt", otherTabId }).catch(() => null);
+    if (isContentScriptAck(response)) {
+      return true;
+    }
+    await sleep(200 + attempt * 250);
+  }
+  return false;
+}
+
+/** Only skip the assign prompt when the duplicate-tab UI was actually shown. */
+async function maybeShowDuplicateTabPrompt(tabId: number, pageUrl: string | undefined): Promise<boolean> {
+  if (!pageUrl || !pageUrl.startsWith("http")) {
+    return false;
+  }
+  const otherId = await pickDuplicateOtherTabId(tabId, pageUrl);
+  if (otherId === null) {
+    return false;
+  }
+  return notifyDuplicateTabPrompt(tabId, otherId);
 }
 
 function safeRun(task: () => Promise<void>): void {
@@ -135,6 +280,104 @@ function getDomain(url: string): string {
   }
 }
 
+function normalizePinnedKey(url: string): string | null {
+  try {
+    const parsed = new URL(url);
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+      return null;
+    }
+    return `${parsed.origin}${parsed.pathname}${parsed.search}`;
+  } catch {
+    return null;
+  }
+}
+
+async function isUrlAlreadyPinned(pageUrl: string): Promise<boolean> {
+  const key = normalizePinnedKey(pageUrl);
+  if (!key) {
+    return false;
+  }
+  const links = await getPinnedLinks();
+  return links.some((link) => normalizePinnedKey(link.url) === key);
+}
+
+async function fetchLinkPreview(url: string): Promise<{ title: string; favIconUrl: string }> {
+  let title = "";
+  let favIconUrl = "";
+  try {
+    const parsed = new URL(url);
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+      return { title, favIconUrl };
+    }
+    const domain = parsed.hostname;
+    favIconUrl = `https://www.google.com/s2/favicons?domain=${encodeURIComponent(domain)}&sz=64`;
+    const res = await fetch(url, {
+      method: "GET",
+      redirect: "follow",
+      headers: { Accept: "text/html,application/xhtml+xml" }
+    });
+    if (res.ok) {
+      const text = (await res.text()).slice(0, 96000);
+      const titleMatch = text.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
+      if (titleMatch) {
+        title = titleMatch[1].replace(/\s+/g, " ").trim().slice(0, 240);
+      }
+      const linkRel = text.match(/<link[^>]+rel=["'][^"']*(?:shortcut )?icon[^"']*["'][^>]*>/i);
+      if (linkRel) {
+        const hrefMatch = linkRel[0].match(/href=["']([^"']+)["']/i);
+        if (hrefMatch) {
+          try {
+            favIconUrl = new URL(hrefMatch[1], url).href;
+          } catch {
+            // keep google favicon
+          }
+        }
+      }
+    }
+  } catch {
+    // ignore
+  }
+  return { title, favIconUrl };
+}
+
+async function savePinnedFromTab(tab: chrome.tabs.Tab): Promise<void> {
+  if (!tab.url || !tab.url.startsWith("http") || typeof tab.id !== "number") {
+    return;
+  }
+  if (await isUrlAlreadyPinned(tab.url)) {
+    return;
+  }
+  const records = await getTabRecords();
+  const rec = records.find((row) => row.tabId === tab.id);
+  await addPinnedLink({
+    url: tab.url,
+    title: tab.title?.trim() || tab.url,
+    favIconUrl: tab.favIconUrl ?? "",
+    workspaceId: rec?.workspaceId ?? null
+  });
+}
+
+async function syncPinnedPageMenuForTab(tab: chrome.tabs.Tab | undefined): Promise<void> {
+  try {
+    const language = await getStoredLanguage();
+    const canPin = Boolean(tab?.url?.startsWith("http"));
+    const exists = canPin && tab?.url ? await isUrlAlreadyPinned(tab.url) : false;
+    await chrome.contextMenus.update(PINNED_SAVE_MENU_ID, {
+      title: exists
+        ? t("contextMenuPinnedSaved", undefined, language)
+        : t("contextMenuSavePinned", undefined, language),
+      enabled: canPin && !exists
+    });
+  } catch {
+    // menu missing during first install race
+  }
+}
+
+async function syncPinnedPageMenuForActiveTab(): Promise<void> {
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  await syncPinnedPageMenuForTab(tab);
+}
+
 async function getWorkspaceGroupMap(): Promise<WorkspaceGroupMap> {
   const result = await chrome.storage.local.get(TAB_GROUPS_KEY);
   return (result[TAB_GROUPS_KEY] as WorkspaceGroupMap | undefined) ?? {};
@@ -142,6 +385,16 @@ async function getWorkspaceGroupMap(): Promise<WorkspaceGroupMap> {
 
 async function setWorkspaceGroupMap(groupMap: WorkspaceGroupMap): Promise<void> {
   await chrome.storage.local.set({ [TAB_GROUPS_KEY]: groupMap });
+}
+
+async function deleteWorkspaceGroupMapKey(mapKey: string): Promise<void> {
+  const groupMap = await getWorkspaceGroupMap();
+  if (!(mapKey in groupMap)) {
+    return;
+  }
+  const next = { ...groupMap };
+  delete next[mapKey];
+  await setWorkspaceGroupMap(next);
 }
 
 async function removeGroupKeyById(groupId: number): Promise<void> {
@@ -165,7 +418,12 @@ function matchWorkspaceByUrl(url: string, workspaces: Workspace[]): Workspace | 
   return null;
 }
 
-function matchWorkspaceByHistory(url: string, workspaces: Workspace[], records: TabRecord[]): Workspace | null {
+function matchWorkspaceByHistory(
+  url: string,
+  workspaces: Workspace[],
+  records: TabRecord[],
+  excludeTabId?: number
+): Workspace | null {
   const domain = getDomain(url);
   if (!domain) {
     return null;
@@ -173,6 +431,9 @@ function matchWorkspaceByHistory(url: string, workspaces: Workspace[], records: 
   const workspaceById = new Map(workspaces.map((workspace) => [workspace.id, workspace]));
   let latestRecord: TabRecord | null = null;
   for (const record of records) {
+    if (excludeTabId !== undefined && record.tabId === excludeTabId) {
+      continue;
+    }
     if (!record.workspaceId) {
       continue;
     }
@@ -207,6 +468,22 @@ async function ensureTabInWorkspaceGroup(tab: chrome.tabs.Tab, workspace: Worksp
     });
   };
 
+  if (typeof groupId === "number") {
+    try {
+      const meta = await chrome.tabGroups.get(groupId);
+      if (meta.windowId !== tab.windowId) {
+        await deleteWorkspaceGroupMapKey(mapKey);
+        groupId = undefined;
+      }
+    } catch {
+      await deleteWorkspaceGroupMapKey(mapKey);
+      if (typeof groupId === "number") {
+        await removeGroupKeyById(groupId);
+      }
+      groupId = undefined;
+    }
+  }
+
   try {
     if (typeof groupId === "number") {
       await chrome.tabs.group({ groupId, tabIds: tab.id });
@@ -214,7 +491,10 @@ async function ensureTabInWorkspaceGroup(tab: chrome.tabs.Tab, workspace: Worksp
       return;
     }
   } catch {
-    await removeGroupKeyById(groupId as number);
+    if (typeof groupId === "number") {
+      await removeGroupKeyById(groupId);
+    }
+    await deleteWorkspaceGroupMapKey(mapKey);
   }
 
   const createdGroupId = await chrome.tabs.group({ tabIds: tab.id });
@@ -233,7 +513,10 @@ async function syncBadgeFromRecords(): Promise<void> {
   });
 }
 
-async function assignAndPersistTab(tab: chrome.tabs.Tab): Promise<void> {
+async function assignAndPersistTab(
+  tab: chrome.tabs.Tab,
+  options?: { skipAssignPrompt?: boolean; skipConsolidatePrompt?: boolean }
+): Promise<void> {
   if (typeof tab.id !== "number" || typeof tab.windowId !== "number") {
     return;
   }
@@ -241,55 +524,112 @@ async function assignAndPersistTab(tab: chrome.tabs.Tab): Promise<void> {
   const records = await getTabRecords();
   const existing = records.find((item) => item.tabId === tab.id);
   const matchedByPattern = tab.url ? matchWorkspaceByUrl(tab.url, workspaces) : null;
-  const matchedByHistory = !matchedByPattern && tab.url ? matchWorkspaceByHistory(tab.url, workspaces, records) : null;
-  const matched = matchedByPattern;
+
+  const priorWorkspaceId = existing?.workspaceId ?? null;
+  const priorWorkspaceStillValid =
+    priorWorkspaceId !== null && workspaces.some((w) => w.id === priorWorkspaceId);
+
+  let nextWorkspaceId: string | null = null;
+  if (priorWorkspaceStillValid) {
+    if (matchedByPattern) {
+      nextWorkspaceId = matchedByPattern.id;
+    } else {
+      nextWorkspaceId = priorWorkspaceId;
+    }
+  } else {
+    nextWorkspaceId = matchedByPattern?.id ?? null;
+  }
+
+  if (
+    nextWorkspaceId === null &&
+    tab.url &&
+    tab.url.startsWith("http") &&
+    !tab.url.startsWith("chrome://") &&
+    !tab.url.startsWith("edge://")
+  ) {
+    const byHistory = matchWorkspaceByHistory(tab.url, workspaces, records, tab.id);
+    if (byHistory) {
+      nextWorkspaceId = byHistory.id;
+    }
+  }
+
+  const settings = await getRuntimeSettings();
+  const assignedWorkspace = nextWorkspaceId ? workspaces.find((w) => w.id === nextWorkspaceId) ?? null : null;
+  const assignmentChanged = priorWorkspaceId !== nextWorkspaceId;
+
+  let workingTab: chrome.tabs.Tab = tab;
+  if (
+    nextWorkspaceId &&
+    assignedWorkspace &&
+    settings.autoCreateTabGroup &&
+    assignmentChanged &&
+    !options?.skipConsolidatePrompt
+  ) {
+    const consolidate = await getWorkspaceConsolidationTarget(tab.id, nextWorkspaceId, tab.windowId);
+    if (consolidate) {
+      const lang = await getStoredLanguage();
+      const promptText = t("assignConsolidateWindowsPrompt", [String(consolidate.peerCountElsewhere)], lang);
+      const ok = await promptMergeWindowsOnTabPage(tab.id, promptText);
+      if (ok) {
+        try {
+          await chrome.tabs.move(tab.id, { windowId: consolidate.windowId, index: -1 });
+          const refreshed = await chrome.tabs.get(tab.id).catch(() => null);
+          if (refreshed) {
+            workingTab = refreshed;
+          }
+        } catch {
+          // Keep tab in original window if move fails (e.g. popup or restricted tab).
+        }
+      }
+    }
+  }
+
   const now = Date.now();
   await updateTabRecord({
     tabId: tab.id,
-    windowId: tab.windowId,
-    workspaceId: matched?.id ?? null,
-    url: tab.url ?? existing?.url ?? "",
-    title: tab.title ?? existing?.title ?? "",
-    favIconUrl: tab.favIconUrl ?? existing?.favIconUrl ?? "",
-    lastAccessed: tab.lastAccessed ?? now,
+    windowId: typeof workingTab.windowId === "number" ? workingTab.windowId : tab.windowId,
+    workspaceId: nextWorkspaceId,
+    url: workingTab.url ?? tab.url ?? existing?.url ?? "",
+    title: workingTab.title ?? tab.title ?? existing?.title ?? "",
+    favIconUrl: workingTab.favIconUrl ?? tab.favIconUrl ?? existing?.favIconUrl ?? "",
+    lastAccessed: workingTab.lastAccessed ?? tab.lastAccessed ?? now,
     createdAt: existing?.createdAt ?? now
   });
-  const settings = await getRuntimeSettings();
-  if (matched && settings.autoCreateTabGroup) {
-    await ensureTabInWorkspaceGroup(tab, matched);
+
+  if (assignedWorkspace && settings.autoCreateTabGroup) {
+    await ensureTabInWorkspaceGroup(workingTab, assignedWorkspace);
   }
-  // If patterns didn't match but history suggests a workspace, ask first.
-  if (!matched && matchedByHistory && settings.autoAssignPrompt && tab.url && typeof tab.id === "number") {
-    const domain = getDomain(tab.url);
-    const ignored = await getIgnoredDomains();
-    if (!ignored.includes(domain) && tab.url.startsWith("http")) {
-      await notifyAssignPrompt(tab.id, {
-        domain,
-        suggestedWorkspaceId: matchedByHistory.id,
-        workspaces: workspaces.map((workspace) => ({
-          id: workspace.id,
-          name: workspace.name,
-          color: workspace.color
-        }))
-      });
-    }
+
+  if (nextWorkspaceId !== null) {
     await syncBadgeFromRecords();
     return;
   }
-  if (!matched && settings.autoAssignPrompt && tab.url && typeof tab.id === "number") {
-    const domain = getDomain(tab.url);
-    const ignored = await getIgnoredDomains();
-    if (!ignored.includes(domain) && tab.url.startsWith("http")) {
-      await notifyAssignPrompt(tab.id, {
-        domain,
-        workspaces: workspaces.map((workspace) => ({
-          id: workspace.id,
-          name: workspace.name,
-          color: workspace.color
-        }))
-      });
-    }
+
+  if (!settings.autoAssignPrompt || !tab.url || !tab.url.startsWith("http")) {
+    await syncBadgeFromRecords();
+    return;
   }
+
+  const domain = getDomain(tab.url);
+  const ignored = await getIgnoredDomains();
+  if (ignored.includes(domain)) {
+    await syncBadgeFromRecords();
+    return;
+  }
+
+  if (options?.skipAssignPrompt) {
+    await syncBadgeFromRecords();
+    return;
+  }
+
+  await notifyAssignPrompt(tab.id, {
+    domain,
+    workspaces: workspaces.map((workspace) => ({
+      id: workspace.id,
+      name: workspace.name,
+      color: workspace.color
+    }))
+  });
   await syncBadgeFromRecords();
 }
 
@@ -305,18 +645,38 @@ async function reconcileTabRecords(logPrefix?: string): Promise<TabRecord[]> {
     }
     const existing = existingByTabId.get(tab.id);
     const matchedByPattern = tab.url ? matchWorkspaceByUrl(tab.url, workspaces) : null;
+    const priorId = existing?.workspaceId ?? null;
+    const priorOk = priorId !== null && workspaces.some((w) => w.id === priorId);
+    let workspaceId: string | null = null;
+    if (priorOk) {
+      workspaceId = matchedByPattern ? matchedByPattern.id : priorId;
+    } else {
+      workspaceId = matchedByPattern?.id ?? null;
+    }
     const now = Date.now();
     records.push({
       tabId: tab.id,
       windowId: tab.windowId,
-      // Never auto-reassign by history in periodic reconciliation; keep user intent stable.
-      workspaceId: existing?.workspaceId ?? matchedByPattern?.id ?? null,
+      workspaceId,
       url: tab.url ?? existing?.url ?? "",
       title: tab.title ?? existing?.title ?? "",
       favIconUrl: tab.favIconUrl ?? existing?.favIconUrl ?? "",
       lastAccessed: tab.lastAccessed ?? now,
       createdAt: existing?.createdAt ?? now
     });
+  }
+  for (let i = 0; i < records.length; i += 1) {
+    const row = records[i];
+    if (row.workspaceId !== null) {
+      continue;
+    }
+    if (!row.url || !row.url.startsWith("http")) {
+      continue;
+    }
+    const inferred = matchWorkspaceByHistory(row.url, workspaces, records, row.tabId);
+    if (inferred) {
+      records[i] = { ...row, workspaceId: inferred.id };
+    }
   }
   await setTabRecords(records);
   if (logPrefix) {
@@ -343,11 +703,12 @@ async function scanAndSyncAllTabs(): Promise<void> {
 }
 
 async function buildSnapshot() {
-  const [tabs, workspaces, records, savedSessions] = await Promise.all([
+  const [tabs, workspaces, records, savedSessions, pinnedLinks] = await Promise.all([
     chrome.tabs.query({}),
     getWorkspaces(),
     getTabRecords(),
-    getSavedSessions()
+    getSavedSessions(),
+    getPinnedLinks()
   ]);
   const settings = await getRuntimeSettings();
   const idleThresholdMs =
@@ -373,6 +734,7 @@ async function buildSnapshot() {
     .sort((a, b) => a.order - b.order)
     .map((workspace) => {
       const wsTabs = tabItems.filter((tab) => tab.workspaceId === workspace.id).sort((a, b) => b.lastAccessed - a.lastAccessed);
+      const wsPins = pinnedLinks.filter((p) => p.workspaceId === workspace.id).sort((a, b) => a.order - b.order);
       return {
         id: workspace.id,
         name: workspace.name,
@@ -384,7 +746,16 @@ async function buildSnapshot() {
         stashedAt: savedSessions[workspace.id]?.savedAt ?? null,
         savedTabs: (savedSessions[workspace.id]?.tabs ?? []).map((tab) => ({ ...tab, domain: getDomain(tab.url) })),
         tabs: wsTabs,
-        recentFavicons: wsTabs.slice(0, 3).map((tab) => tab.favIconUrl).filter(Boolean)
+        recentFavicons: wsTabs.slice(0, 3).map((tab) => tab.favIconUrl).filter(Boolean),
+        pinnedStrip: wsPins.slice(0, 5).map((link) => ({
+          id: link.id,
+          url: link.url,
+          title: link.title,
+          favIconUrl: link.favIconUrl,
+          workspaceId: link.workspaceId,
+          domain: getDomain(link.url)
+        })),
+        pinnedStripTotal: wsPins.length
       };
     });
 
@@ -412,7 +783,17 @@ async function buildSnapshot() {
     weekly: week,
     usageRanking: workspaceItems
       .map((workspace) => ({ workspaceId: workspace.id, name: workspace.name, color: workspace.color, value: workspace.tabCount * 12 }))
-      .sort((a, b) => b.value - a.value)
+      .sort((a, b) => b.value - a.value),
+    pinnedLinks: pinnedLinks.map((link) => ({
+      id: link.id,
+      url: link.url,
+      title: link.title,
+      favIconUrl: link.favIconUrl,
+      workspaceId: link.workspaceId,
+      order: link.order,
+      createdAt: link.createdAt,
+      domain: getDomain(link.url)
+    }))
   };
 }
 
@@ -425,6 +806,7 @@ async function stashWorkspaceTabs(workspaceId: string): Promise<void> {
     .filter((id): id is number => typeof id === "number" && workspaceTabIdSet.has(id));
   await saveTabs(workspaceId);
   if (tabIds.length > 0) {
+    markTabsRemovedByFlox(tabIds);
     await chrome.tabs.remove(tabIds);
   }
   await clearWorkspaceGroupMappings(workspaceId);
@@ -438,14 +820,57 @@ async function closeWorkspaceTabs(workspaceId: string): Promise<void> {
     .map((tab) => tab.id)
     .filter((id): id is number => typeof id === "number" && workspaceTabIdSet.has(id));
   if (tabIds.length > 0) {
+    markTabsRemovedByFlox(tabIds);
     await chrome.tabs.remove(tabIds);
   }
   const next = (await getTabRecords()).filter((record) => !workspaceTabIdSet.has(record.tabId));
   await setTabRecords(next);
 }
 
+async function countOpenTabsInWorkspace(workspaceId: string, excludeTabId: number): Promise<number> {
+  const records = await getTabRecords();
+  const openTabs = await chrome.tabs.query({});
+  const openIds = new Set(openTabs.map((t) => t.id).filter((id): id is number => typeof id === "number"));
+  return records.filter(
+    (row) => row.workspaceId === workspaceId && row.tabId !== excludeTabId && openIds.has(row.tabId)
+  ).length;
+}
+
+async function finalizeWorkspaceDeletion(workspaceId: string): Promise<void> {
+  const records = await getTabRecords();
+  const affectedTabIds = records.filter((r) => r.workspaceId === workspaceId).map((r) => r.tabId);
+  await deleteWorkspace(workspaceId);
+  await clearWorkspaceGroupMappings(workspaceId);
+  for (const id of affectedTabIds) {
+    const stillOpen = await chrome.tabs.get(id).catch(() => null);
+    if (stillOpen && typeof stillOpen.id === "number") {
+      await chrome.tabs.ungroup(stillOpen.id).catch(() => undefined);
+    }
+  }
+  await refreshContextMenuTitle();
+  await scanAndSyncAllTabs();
+}
+
 async function closeSingleTab(tabId: number): Promise<void> {
+  markTabsRemovedByFlox([tabId]);
   await chrome.tabs.remove(tabId);
+}
+
+async function closeWorkspaceTabWithChoice(tabId: number, workspaceId: string, removeWorkspace: boolean): Promise<void> {
+  const records = await getTabRecords();
+  const openTabs = await chrome.tabs.query({});
+  const openIds = new Set(openTabs.map((tab) => tab.id).filter((id): id is number => typeof id === "number"));
+  const openInWorkspace = records.filter(
+    (row) => row.workspaceId === workspaceId && typeof row.tabId === "number" && openIds.has(row.tabId)
+  );
+
+  if (removeWorkspace && openInWorkspace.length === 1 && openInWorkspace[0].tabId === tabId) {
+    await finalizeWorkspaceDeletion(workspaceId);
+  }
+
+  markTabsRemovedByFlox([tabId]);
+  await chrome.tabs.remove(tabId).catch(() => undefined);
+  await scanAndSyncAllTabs();
 }
 
 async function closeTabs(tabIds: number[]): Promise<void> {
@@ -459,16 +884,97 @@ async function closeTabs(tabIds: number[]): Promise<void> {
   if (valid.length === 0) {
     return;
   }
+  markTabsRemovedByFlox(valid);
   await chrome.tabs.remove(valid);
 }
 
-async function moveTabToWorkspace(tabId: number, workspaceId: string | null): Promise<void> {
-  const tab = await chrome.tabs.get(tabId).catch(() => null);
-  if (!tab) {
+type MoveTabOptions = { skipConsolidatePrompt?: boolean };
+
+/** If the workspace has open tabs in other windows, pick the window that holds the most of them (for merge target). */
+async function getWorkspaceConsolidationTarget(
+  tabId: number,
+  workspaceId: string,
+  currentWindowId: number
+): Promise<{ windowId: number; peerCountElsewhere: number } | null> {
+  const records = await getTabRecords();
+  const openTabs = await chrome.tabs.query({});
+  const openById = new Map(
+    openTabs
+      .filter((x): x is chrome.tabs.Tab & { id: number } => typeof x.id === "number")
+      .map((x) => [x.id, x])
+  );
+
+  const countsByWindow = new Map<number, number>();
+  for (const r of records) {
+    if (r.workspaceId !== workspaceId || r.tabId === tabId) {
+      continue;
+    }
+    const peer = openById.get(r.tabId);
+    if (!peer || typeof peer.windowId !== "number") {
+      continue;
+    }
+    if (peer.windowId === currentWindowId) {
+      continue;
+    }
+    countsByWindow.set(peer.windowId, (countsByWindow.get(peer.windowId) ?? 0) + 1);
+  }
+  if (countsByWindow.size === 0) {
+    return null;
+  }
+
+  let bestWindow = currentWindowId;
+  let bestCount = -1;
+  for (const [w, c] of countsByWindow) {
+    if (c > bestCount) {
+      bestCount = c;
+      bestWindow = w;
+    }
+  }
+  const peerCountElsewhere = [...countsByWindow.values()].reduce((sum, c) => sum + c, 0);
+  return { windowId: bestWindow, peerCountElsewhere };
+}
+
+async function promptMergeWindowsOnTabPage(tabId: number, message: string): Promise<boolean> {
+  try {
+    const [injected] = await chrome.scripting.executeScript({
+      target: { tabId },
+      func: (text: string) => window.confirm(text),
+      args: [message]
+    });
+    return injected?.result === true;
+  } catch {
+    return false;
+  }
+}
+
+async function moveTabToWorkspace(tabId: number, workspaceId: string | null, options?: MoveTabOptions): Promise<void> {
+  let tab = await chrome.tabs.get(tabId).catch(() => null);
+  if (!tab || typeof tab.id !== "number") {
     return;
   }
+
+  const recordsBefore = await getTabRecords();
+  const currentBefore = recordsBefore.find((item) => item.tabId === tabId);
+
+  if (workspaceId && typeof tab.windowId === "number" && !options?.skipConsolidatePrompt) {
+    const consolidate = await getWorkspaceConsolidationTarget(tabId, workspaceId, tab.windowId);
+    if (consolidate) {
+      const lang = await getStoredLanguage();
+      const promptText = t("assignConsolidateWindowsPrompt", [String(consolidate.peerCountElsewhere)], lang);
+      const ok = await promptMergeWindowsOnTabPage(tabId, promptText);
+      if (ok) {
+        try {
+          await chrome.tabs.move(tabId, { windowId: consolidate.windowId, index: -1 });
+          tab = (await chrome.tabs.get(tabId).catch(() => null)) ?? tab;
+        } catch {
+          // Keep tab in original window if move fails (e.g. popup or restricted tab).
+        }
+      }
+    }
+  }
+
   const records = await getTabRecords();
-  const current = records.find((item) => item.tabId === tabId);
+  const current = records.find((item) => item.tabId === tabId) ?? currentBefore;
   await updateTabRecord({
     tabId,
     windowId: typeof tab.windowId === "number" ? tab.windowId : current?.windowId ?? -1,
@@ -479,12 +985,27 @@ async function moveTabToWorkspace(tabId: number, workspaceId: string | null): Pr
     lastAccessed: Date.now(),
     createdAt: current?.createdAt ?? Date.now()
   });
-  if (workspaceId) {
-    const workspace = (await getWorkspaces()).find((item) => item.id === workspaceId);
-    if (workspace) {
-      await ensureTabInWorkspaceGroup(tab, workspace);
+  if (!workspaceId) {
+    try {
+      await chrome.tabs.ungroup(tabId);
+    } catch {
+      // Tab may already be ungrouped.
     }
+    return;
   }
+  const workspace = (await getWorkspaces()).find((item) => item.id === workspaceId);
+  if (workspace) {
+    await ensureTabInWorkspaceGroup(tab, workspace);
+  }
+}
+
+async function focusLiveTab(tabId: number): Promise<void> {
+  const tab = await chrome.tabs.get(tabId).catch(() => null);
+  if (!tab || typeof tab.windowId !== "number") {
+    return;
+  }
+  await chrome.windows.update(tab.windowId, { focused: true }).catch(() => undefined);
+  await chrome.tabs.update(tabId, { active: true });
 }
 
 async function restoreSingleSavedTab(workspaceId: string, url: string): Promise<void> {
@@ -574,6 +1095,14 @@ async function refreshContextMenuTitle(): Promise<void> {
       title: assignNew,
       contexts: ["page"]
     });
+    await contextMenusCreate({
+      id: PINNED_SAVE_MENU_ID,
+      title: t("contextMenuSavePinned", undefined, language),
+      contexts: ["page"],
+      documentUrlPatterns: ["http://*/*", "https://*/*"]
+    });
+    const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    await syncPinnedPageMenuForTab(activeTab);
   })().finally(() => {
     contextMenuRefreshInFlight = null;
   });
@@ -643,6 +1172,19 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
           await closeSingleTab(message.tabId);
           sendResponse({ ok: true });
           break;
+        case "popup:closeWorkspaceTab":
+        case "dashboard:closeWorkspaceTab": {
+          const tabId = message.tabId as number;
+          const workspaceId = message.workspaceId as string;
+          const removeWorkspace = message.deleteWorkspace === true;
+          if (typeof tabId !== "number" || typeof workspaceId !== "string") {
+            sendResponse({ ok: false });
+            break;
+          }
+          await closeWorkspaceTabWithChoice(tabId, workspaceId, removeWorkspace);
+          sendResponse({ ok: true });
+          break;
+        }
         case "popup:closeTabs":
           await closeTabs((message.tabIds as number[] | undefined) ?? []);
           sendResponse({ ok: true });
@@ -659,13 +1201,38 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
           break;
         case "popup:deleteWorkspace":
         case "dashboard:deleteWorkspace":
-          await deleteWorkspace(message.workspaceId);
-          sendResponse({ ok: true });
+          try {
+            await finalizeWorkspaceDeletion(message.workspaceId);
+            sendResponse({ ok: true });
+          } catch {
+            sendResponse({ ok: false });
+          }
           break;
+        case "flox:countWorkspaceOpenTabs": {
+          const wsId = message.workspaceId as string;
+          const exclude = message.excludeTabId as number;
+          if (typeof wsId !== "string" || typeof exclude !== "number") {
+            sendResponse({ ok: false });
+            break;
+          }
+          const count = await countOpenTabsInWorkspace(wsId, exclude);
+          sendResponse({ ok: true, count });
+          break;
+        }
         case "dashboard:assignTab":
           await moveTabToWorkspace(message.tabId, message.workspaceId ?? null);
           sendResponse({ ok: true });
           break;
+        case "dashboard:focusTab": {
+          const focusId = message.tabId as number;
+          if (typeof focusId !== "number") {
+            sendResponse({ ok: false });
+            break;
+          }
+          await focusLiveTab(focusId);
+          sendResponse({ ok: true });
+          break;
+        }
         case "dashboard:reorderWorkspaces":
           await reorderWorkspaces(message.workspaceIds ?? []);
           sendResponse({ ok: true });
@@ -694,6 +1261,184 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
           sendResponse({ ok: true });
           break;
         }
+        case "content:duplicateMerge": {
+          const senderId = _sender.tab?.id;
+          const otherId = typeof message.otherTabId === "number" ? message.otherTabId : null;
+          if (typeof senderId === "number" && typeof otherId === "number" && senderId !== otherId) {
+            const other = await chrome.tabs.get(otherId).catch(() => null);
+            if (other && typeof other.windowId === "number") {
+              await chrome.windows.update(other.windowId, { focused: true });
+              await chrome.tabs.update(otherId, { active: true });
+            }
+            markTabsRemovedByFlox([senderId]);
+            await chrome.tabs.remove(senderId).catch(() => undefined);
+            await scanAndSyncAllTabs();
+          }
+          sendResponse({ ok: true });
+          break;
+        }
+        case "content:duplicateKeepBoth": {
+          const tabId = _sender.tab?.id;
+          if (typeof tabId === "number") {
+            const latest = await chrome.tabs.get(tabId).catch(() => null);
+            if (latest) {
+              await assignAndPersistTab(latest);
+            }
+          }
+          sendResponse({ ok: true });
+          break;
+        }
+        case "popup:fetchPinnedPreview":
+        case "dashboard:fetchPinnedPreview": {
+          const rawUrl = typeof message.url === "string" ? message.url.trim() : "";
+          const preview = await fetchLinkPreview(rawUrl);
+          sendResponse({ ok: true, title: preview.title, favIconUrl: preview.favIconUrl });
+          break;
+        }
+        case "popup:addPinnedLink":
+        case "dashboard:addPinnedLink": {
+          try {
+            const link = await addPinnedLink({
+              url: typeof message.url === "string" ? message.url : "",
+              title: typeof message.title === "string" ? message.title : "",
+              favIconUrl: typeof message.favIconUrl === "string" ? message.favIconUrl : "",
+              workspaceId: message.workspaceId === null ? null : (message.workspaceId as string | undefined) ?? null
+            });
+            await syncPinnedPageMenuForActiveTab();
+            sendResponse({ ok: true, link });
+          } catch (err) {
+            const code = err instanceof Error && err.message === "PINNED_LIMIT" ? "pinned_limit" : "error";
+            sendResponse({ ok: false, code });
+          }
+          break;
+        }
+        case "popup:updatePinnedLink":
+        case "dashboard:updatePinnedLink": {
+          const id = message.id as string;
+          if (!id) {
+            sendResponse({ ok: false });
+            break;
+          }
+          await updatePinnedLink(id, {
+            url: typeof message.url === "string" ? message.url : undefined,
+            title: typeof message.title === "string" ? message.title : undefined,
+            favIconUrl: typeof message.favIconUrl === "string" ? message.favIconUrl : undefined,
+            workspaceId:
+              message.workspaceId === undefined
+                ? undefined
+                : message.workspaceId === null
+                  ? null
+                  : (message.workspaceId as string)
+          });
+          await syncPinnedPageMenuForActiveTab();
+          sendResponse({ ok: true });
+          break;
+        }
+        case "popup:removePinnedLink":
+        case "dashboard:removePinnedLink": {
+          const id = message.id as string;
+          if (!id) {
+            sendResponse({ ok: false });
+            break;
+          }
+          await removePinnedLink(id);
+          await syncPinnedPageMenuForActiveTab();
+          sendResponse({ ok: true });
+          break;
+        }
+        case "dashboard:reorderPinnedLinks": {
+          const ids = (message.orderedIds as string[] | undefined) ?? [];
+          await reorderPinnedLinks(ids);
+          sendResponse({ ok: true });
+          break;
+        }
+        case "dashboard:openPinnedWorkspace":
+        case "popup:openPinnedWorkspace": {
+          const ws = message.workspaceId === null ? null : (message.workspaceId as string | undefined);
+          const all = await getPinnedLinks();
+          const subset =
+            ws === null
+              ? all.filter((l) => l.workspaceId === null)
+              : typeof ws === "string"
+                ? all.filter((l) => l.workspaceId === ws)
+                : all;
+          let first = true;
+          for (const link of subset.sort((a, b) => a.order - b.order)) {
+            if (!link.url.startsWith("http")) {
+              continue;
+            }
+            await chrome.tabs.create({ url: link.url, active: first });
+            first = false;
+          }
+          sendResponse({ ok: true });
+          break;
+        }
+        case "content:addPinnedFromPage": {
+          const tabId = _sender.tab?.id;
+          if (typeof tabId !== "number") {
+            sendResponse({ ok: false, code: "no_tab" });
+            break;
+          }
+          const tab = await chrome.tabs.get(tabId).catch(() => null);
+          if (!tab?.url || !tab.url.startsWith("http")) {
+            sendResponse({ ok: false, code: "bad_url" });
+            break;
+          }
+          const wsPick =
+            message.workspaceId === null
+              ? null
+              : typeof message.workspaceId === "string"
+                ? message.workspaceId
+                : (await getTabRecords()).find((row) => row.tabId === tabId)?.workspaceId ?? null;
+          try {
+            await addPinnedLink({
+              url: tab.url,
+              title:
+                typeof message.title === "string" && message.title.trim()
+                  ? message.title.trim()
+                  : (tab.title ?? tab.url),
+              favIconUrl: tab.favIconUrl ?? "",
+              workspaceId: wsPick
+            });
+            await syncPinnedPageMenuForActiveTab();
+            sendResponse({ ok: true });
+          } catch (err) {
+            const code = err instanceof Error && err.message === "PINNED_LIMIT" ? "pinned_limit" : "error";
+            sendResponse({ ok: false, code });
+          }
+          break;
+        }
+        case "content:createWorkspaceAndAssign": {
+          const tabId = _sender.tab?.id;
+          if (typeof tabId !== "number") {
+            sendResponse({ ok: false, code: "no_tab" });
+            break;
+          }
+          const tab = await chrome.tabs.get(tabId).catch(() => null);
+          if (!tab?.url || !tab.url.startsWith("http")) {
+            sendResponse({ ok: false, code: "bad_url" });
+            break;
+          }
+          const unlimited = await checkFeature("unlimitedWorkspaces");
+          const workspaceCount = (await getWorkspaces()).length;
+          if (!unlimited && workspaceCount >= PLAN_LIMITS.FREE.maxWorkspaces) {
+            sendResponse({ ok: false, code: "workspace_limit" });
+            break;
+          }
+          const domain = getDomain(tab.url);
+          const name = typeof message.name === "string" && message.name.trim() ? message.name.trim() : t("popupUntitledTask");
+          const color = typeof message.color === "string" ? message.color : "#6366f1";
+          const newWorkspace = await addWorkspace({
+            name,
+            color,
+            urlPatterns: domain ? [domain] : []
+          });
+          await moveTabToWorkspace(tabId, newWorkspace.id);
+          await refreshContextMenuTitle();
+          await scanAndSyncAllTabs();
+          sendResponse({ ok: true, workspaceId: newWorkspace.id });
+          break;
+        }
         case "popup:rescanTabs":
         case "dashboard:rescanTabs":
           await scanAndSyncAllTabs();
@@ -717,6 +1462,16 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
   if (info.menuItemId === DASHBOARD_MENU_ID) {
     safeRun(async () => {
       await chrome.tabs.create({ url: chrome.runtime.getURL("dashboard.html") });
+    });
+    return;
+  }
+
+  if (info.menuItemId === PINNED_SAVE_MENU_ID) {
+    safeRun(async () => {
+      if (tab) {
+        await savePinnedFromTab(tab);
+        await syncPinnedPageMenuForTab(tab);
+      }
     });
     return;
   }
@@ -765,10 +1520,17 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
         status: changeInfo.status,
         url
       });
+      let skipAssignPrompt = false;
+      if (changeInfo.status === "complete" && typeof url === "string") {
+        skipAssignPrompt = await maybeShowDuplicateTabPrompt(tabId, url);
+      }
       if (updated) {
-        await assignAndPersistTab(updated);
+        await assignAndPersistTab(updated, { skipAssignPrompt });
+        if (typeof changeInfo.url === "string" || changeInfo.status === "complete") {
+          await syncPinnedPageMenuForTab(updated);
+        }
       } else {
-        await assignAndPersistTab({ ...tab, id: tabId, url: url ?? tab.url });
+        await assignAndPersistTab({ ...tab, id: tabId, url: url ?? tab.url }, { skipAssignPrompt });
       }
     });
   }
@@ -776,6 +1538,33 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
 
 chrome.tabs.onRemoved.addListener((tabId) => {
   safeRun(async () => {
+    if (floxInitiatedTabRemovals.has(tabId)) {
+      floxInitiatedTabRemovals.delete(tabId);
+      await removeTabRecord(tabId);
+      await syncBadgeFromRecords();
+      return;
+    }
+
+    const records = await getTabRecords();
+    const victim = records.find((row) => row.tabId === tabId);
+    const workspaceId = victim?.workspaceId ?? null;
+
+    if (workspaceId) {
+      const openTabs = await chrome.tabs.query({});
+      const openIds = new Set(
+        openTabs.map((tab) => tab.id).filter((id): id is number => typeof id === "number")
+      );
+      const othersOpenInWorkspace = records.filter(
+        (row) => row.workspaceId === workspaceId && row.tabId !== tabId && openIds.has(row.tabId)
+      );
+      await removeTabRecord(tabId);
+      await syncBadgeFromRecords();
+      if (othersOpenInWorkspace.length === 0) {
+        await notifyLastWorkspaceTabClosed(workspaceId);
+      }
+      return;
+    }
+
     await removeTabRecord(tabId);
     await syncBadgeFromRecords();
   });
@@ -787,6 +1576,7 @@ chrome.tabs.onActivated.addListener((activeInfo) => {
     if (!tab || typeof tab.id !== "number") {
       return;
     }
+    await syncPinnedPageMenuForTab(tab);
     const current = (await getTabRecords()).find((record) => record.tabId === tab.id);
     await updateTabRecord({
       tabId: tab.id,
@@ -844,6 +1634,14 @@ chrome.commands.onCommand.addListener((command) => {
       }
       await stashWorkspaceTabs(record.workspaceId);
       await scanAndSyncAllTabs();
+      return;
+    }
+    if (command === "save_pinned") {
+      const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      if (activeTab) {
+        await savePinnedFromTab(activeTab);
+        await syncPinnedPageMenuForTab(activeTab);
+      }
     }
   });
 });

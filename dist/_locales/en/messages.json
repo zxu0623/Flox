@@ -75,6 +75,15 @@
   "popupStash": { "message": "Stash" },
   "popupRestore": { "message": "Restore" },
   "popupUnassigned": { "message": "Unassigned" },
+  "popupUnassignedBulkTitle": {
+    "message": "$COUNT$ tab(s) are not assigned to a workspace",
+    "placeholders": { "count": { "content": "$1" } }
+  },
+  "popupUnassignedBulkHint": {
+    "message": "Close all of them at once, or keep them open and assign later from the list below."
+  },
+  "popupUnassignedCloseAll": { "message": "Close all" },
+  "popupUnassignedRemindLater": { "message": "Not now" },
   "popupNewTask": { "message": "+ New Task" },
   "popupProCta": { "message": "Unlock more features ->" },
   "popupStashedState": {
@@ -108,14 +117,18 @@
   "dashboardNavOverview": { "message": "All Overview" },
   "dashboardNavUnassigned": { "message": "Unassigned" },
   "dashboardNavStashed": { "message": "Stashed" },
-  "dashboardNavStats": { "message": "Statistics (Pro)" },
+  "dashboardNavStats": { "message": "Statistics" },
   "dashboardUpgradePro": { "message": "Upgrade Pro" },
+  "dashboardProPageTitle": { "message": "Flox Pro" },
   "dashboardComingSoon": { "message": "Coming soon" },
   "dashboardStashed": { "message": "Stashed" },
   "dashboardIdleShort": { "message": "Idle for over 1 hour" },
   "dashboardIdleLong": { "message": "Idle for over 4 hours" },
   "dashboardAllClassified": { "message": "All tabs are classified ✓" },
   "dashboardMoveTo": { "message": "Move to..." },
+  "dashboardReassignTo": { "message": "Reassign to…" },
+  "dashboardRemoveFromWorkspace": { "message": "Remove from workspace" },
+  "dashboardSwitchToTab": { "message": "Go to this tab" },
   "upgradeProUnlockFeature": {
     "message": "Upgrade Pro to unlock $FEATURE$",
     "placeholders": { "feature": { "content": "$1" } }
@@ -134,6 +147,9 @@
   "tooltipLearnPro": { "message": "Learn Flox Pro" },
   "tooltipOpenSettings": { "message": "Open settings" },
   "assignPromptTitle": { "message": "Flox: Which task does this page belong to?" },
+  "assignPromptNewTask": { "message": "+ New task" },
+  "assignPromptCreateAndAssign": { "message": "Create and assign" },
+  "assignPromptFormCancel": { "message": "Cancel" },
   "assignPromptReassignTitle": {
     "message": "Assign this page to “$NAME$”?",
     "placeholders": { "name": { "content": "$1" } }
@@ -142,6 +158,68 @@
   "assignPromptNotNow": { "message": "Not now" },
   "assignPromptSkip": { "message": "Skip" },
   "assignPromptIgnoreDomain": { "message": "Always ignore this site" },
+  "duplicateTabTitle": { "message": "This page is already open in another tab." },
+  "duplicateTabHint": { "message": "Switch to the existing tab or keep both tabs open." },
+  "duplicateTabMerge": { "message": "Switch to existing tab" },
+  "duplicateTabKeepBoth": { "message": "Keep both" },
+  "lastWorkspaceTabTitle": {
+    "message": "This is the last open tab in “$NAME$”.",
+    "placeholders": { "name": { "content": "$1" } }
+  },
+  "lastWorkspaceTabHint": {
+    "message": "Close only this tab, or delete the task (workspace) from Flox?"
+  },
+  "lastWorkspaceTabCloseOnly": { "message": "Close tab only" },
+  "lastWorkspaceTabDeleteWorkspace": { "message": "Delete workspace" },
+  "lastWorkspaceTabCancel": { "message": "Cancel" },
+  "lastTabClosedNotifyTitle": {
+    "message": "Last tab closed in “$NAME$”",
+    "placeholders": { "name": { "content": "$1" } }
+  },
+  "lastTabClosedNotifyMessage": {
+    "message": "No open tabs left in this task. Delete the workspace from Flox or keep it for later."
+  },
+  "lastTabClosedNotifyKeep": { "message": "Keep workspace" },
+  "commandSavePinned": { "message": "Save current page as pinned link" },
+  "contextMenuSavePinned": { "message": "Flox: Save as pinned link" },
+  "contextMenuPinnedSaved": { "message": "Flox: Saved as pinned link ✓" },
+  "popupTabTabs": { "message": "Tabs" },
+  "popupTabPinned": { "message": "Pinned" },
+  "pinnedGeneralGroup": { "message": "General" },
+  "pinnedEmpty": { "message": "No pinned links yet." },
+  "pinnedAddLink": { "message": "+ Add pinned link" },
+  "pinnedOpen": { "message": "Open" },
+  "pinnedMore": { "message": "More" },
+  "pinnedEdit": { "message": "Edit" },
+  "pinnedMove": { "message": "Move to…" },
+  "pinnedDelete": { "message": "Delete" },
+  "pinnedSave": { "message": "Save" },
+  "pinnedCancel": { "message": "Cancel" },
+  "pinnedUrl": { "message": "URL" },
+  "pinnedTitle": { "message": "Title" },
+  "pinnedWorkspace": { "message": "Workspace" },
+  "pinnedNone": { "message": "General (no workspace)" },
+  "pinnedViewAll": { "message": "View all" },
+  "pinnedPageTitle": { "message": "Pinned links" },
+  "pinnedTotal": { "message": "$COUNT$ total", "placeholders": { "count": { "content": "$1" } } },
+  "pinnedOpenAll": { "message": "Open all" },
+  "pinnedUpgradeHint": {
+    "message": "Free plan allows up to $COUNT$ pinned links. Upgrade to Flox Pro for unlimited.",
+    "placeholders": { "count": { "content": "$1" } }
+  },
+  "pinnedLimitReached": {
+    "message": "Free plan allows up to $COUNT$ pinned links.",
+    "placeholders": { "count": { "content": "$1" } }
+  },
+  "pinnedLinkNotFound": { "message": "Pinned link not found." },
+  "dashboardNavPinned": { "message": "Pinned" },
+  "assignConsolidateWindowsPrompt": {
+    "message": "This workspace already has $COUNT$ tab(s) in another browser window. Move this tab there so all tabs stay in one window and group together?",
+    "placeholders": { "count": { "content": "$1" } }
+  },
+  "assignPromptSavePinned": { "message": "Save as pinned link" },
+  "assignPromptPinTitle": { "message": "Title" },
+  "assignPromptPinSave": { "message": "Save" },
   "loading": { "message": "Loading..." },
   "feedbackLink": { "message": "💬 Feedback" },
   "feedbackUrl": { "message": "https://flox.app/feedback" },

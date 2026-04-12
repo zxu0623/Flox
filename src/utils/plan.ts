@@ -1,7 +1,11 @@
 export type UserPlan = "FREE" | "PRO";
 
+/** When false: hide paywall UI and treat all plan-gated features as unlocked. Set to true to restore monetization. */
+export const MONETIZATION_ENABLED = false;
+
 export type FeatureKey =
   | "unlimitedWorkspaces"
+  | "unlimitedPinnedLinks"
   | "crossDeviceSync"
   | "smartClassification"
   | "statistics";
@@ -12,12 +16,14 @@ const DEFAULT_PLAN: UserPlan = "FREE";
 const PLAN_FEATURES: Record<UserPlan, Record<FeatureKey, boolean>> = {
   FREE: {
     unlimitedWorkspaces: false,
+    unlimitedPinnedLinks: false,
     crossDeviceSync: false,
     smartClassification: false,
     statistics: false
   },
   PRO: {
     unlimitedWorkspaces: true,
+    unlimitedPinnedLinks: true,
     crossDeviceSync: true,
     smartClassification: true,
     statistics: true
@@ -26,7 +32,8 @@ const PLAN_FEATURES: Record<UserPlan, Record<FeatureKey, boolean>> = {
 
 export const PLAN_LIMITS = {
   FREE: {
-    maxWorkspaces: 5
+    maxWorkspaces: 5,
+    maxPinnedLinks: 20
   }
 } as const;
 
@@ -41,6 +48,9 @@ export async function setUserPlan(plan: UserPlan): Promise<void> {
 }
 
 export async function checkFeature(feature: string): Promise<boolean> {
+  if (!MONETIZATION_ENABLED) {
+    return true;
+  }
   if (!Object.prototype.hasOwnProperty.call(PLAN_FEATURES.FREE, feature)) {
     return true;
   }

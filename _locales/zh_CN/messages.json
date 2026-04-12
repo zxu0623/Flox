@@ -75,6 +75,15 @@
   "popupStash": { "message": "暂存" },
   "popupRestore": { "message": "恢复" },
   "popupUnassigned": { "message": "未分配" },
+  "popupUnassignedBulkTitle": {
+    "message": "有 $COUNT$ 个标签页尚未分配到任务",
+    "placeholders": { "count": { "content": "$1" } }
+  },
+  "popupUnassignedBulkHint": {
+    "message": "可以一键全部关闭，也可以保留并在下方列表中稍后分配。"
+  },
+  "popupUnassignedCloseAll": { "message": "全部关闭" },
+  "popupUnassignedRemindLater": { "message": "暂不" },
   "popupNewTask": { "message": "+ 新建任务" },
   "popupProCta": { "message": "解锁更多功能 ->" },
   "popupStashedState": {
@@ -108,14 +117,18 @@
   "dashboardNavOverview": { "message": "全部概览" },
   "dashboardNavUnassigned": { "message": "未分配" },
   "dashboardNavStashed": { "message": "已暂存" },
-  "dashboardNavStats": { "message": "统计（Pro）" },
+  "dashboardNavStats": { "message": "统计" },
   "dashboardUpgradePro": { "message": "升级 Pro" },
+  "dashboardProPageTitle": { "message": "Flox Pro" },
   "dashboardComingSoon": { "message": "即将推出" },
   "dashboardStashed": { "message": "已暂存" },
   "dashboardIdleShort": { "message": "超过 1 小时未访问" },
   "dashboardIdleLong": { "message": "超过 4 小时未访问" },
   "dashboardAllClassified": { "message": "所有标签页都已归类 ✓" },
   "dashboardMoveTo": { "message": "移动到..." },
+  "dashboardReassignTo": { "message": "重新分配到…" },
+  "dashboardRemoveFromWorkspace": { "message": "移出任务" },
+  "dashboardSwitchToTab": { "message": "切换到该标签页" },
   "upgradeProUnlockFeature": {
     "message": "升级 Pro 解锁$FEATURE$",
     "placeholders": { "feature": { "content": "$1" } }
@@ -134,6 +147,9 @@
   "tooltipLearnPro": { "message": "了解 Flox Pro" },
   "tooltipOpenSettings": { "message": "打开设置" },
   "assignPromptTitle": { "message": "Flox：这个页面属于哪个任务？" },
+  "assignPromptNewTask": { "message": "+ 新建任务" },
+  "assignPromptCreateAndAssign": { "message": "创建并分配" },
+  "assignPromptFormCancel": { "message": "取消" },
   "assignPromptReassignTitle": {
     "message": "要把这个页面分配到「$NAME$」吗？",
     "placeholders": { "name": { "content": "$1" } }
@@ -142,6 +158,68 @@
   "assignPromptNotNow": { "message": "暂不" },
   "assignPromptSkip": { "message": "跳过" },
   "assignPromptIgnoreDomain": { "message": "总是忽略此网站" },
+  "duplicateTabTitle": { "message": "该网页已在其他标签页打开。" },
+  "duplicateTabHint": { "message": "可切换到已有标签页，或同时保留两个标签页。" },
+  "duplicateTabMerge": { "message": "切换到已有标签页" },
+  "duplicateTabKeepBoth": { "message": "同时保留两个" },
+  "lastWorkspaceTabTitle": {
+    "message": "这是「$NAME$」中最后一个打开的标签页。",
+    "placeholders": { "name": { "content": "$1" } }
+  },
+  "lastWorkspaceTabHint": {
+    "message": "只关闭此标签页，还是从 Flox 中删除整个任务（工作空间）？"
+  },
+  "lastWorkspaceTabCloseOnly": { "message": "仅关闭标签页" },
+  "lastWorkspaceTabDeleteWorkspace": { "message": "删除工作空间" },
+  "lastWorkspaceTabCancel": { "message": "取消" },
+  "lastTabClosedNotifyTitle": {
+    "message": "「$NAME$」的最后一个标签已关闭",
+    "placeholders": { "name": { "content": "$1" } }
+  },
+  "lastTabClosedNotifyMessage": {
+    "message": "该任务下已没有打开的标签页。要从 Flox 删除此工作空间，还是保留以便之后使用？"
+  },
+  "lastTabClosedNotifyKeep": { "message": "保留工作空间" },
+  "commandSavePinned": { "message": "将当前页存为常用链接" },
+  "contextMenuSavePinned": { "message": "Flox：保存为常用链接" },
+  "contextMenuPinnedSaved": { "message": "Flox：已保存为常用链接 ✓" },
+  "popupTabTabs": { "message": "标签" },
+  "popupTabPinned": { "message": "常用" },
+  "pinnedGeneralGroup": { "message": "通用" },
+  "pinnedEmpty": { "message": "还没有常用链接。" },
+  "pinnedAddLink": { "message": "+ 添加常用链接" },
+  "pinnedOpen": { "message": "打开" },
+  "pinnedMore": { "message": "更多" },
+  "pinnedEdit": { "message": "编辑" },
+  "pinnedMove": { "message": "移动到…" },
+  "pinnedDelete": { "message": "删除" },
+  "pinnedSave": { "message": "保存" },
+  "pinnedCancel": { "message": "取消" },
+  "pinnedUrl": { "message": "网址" },
+  "pinnedTitle": { "message": "标题" },
+  "pinnedWorkspace": { "message": "归属任务" },
+  "pinnedNone": { "message": "通用（不归属任务）" },
+  "pinnedViewAll": { "message": "查看全部" },
+  "pinnedPageTitle": { "message": "常用链接" },
+  "pinnedTotal": { "message": "共 $COUNT$ 条", "placeholders": { "count": { "content": "$1" } } },
+  "pinnedOpenAll": { "message": "全部打开" },
+  "pinnedUpgradeHint": {
+    "message": "免费版最多保存 $COUNT$ 条常用链接，升级 Flox Pro 可无限使用。",
+    "placeholders": { "count": { "content": "$1" } }
+  },
+  "pinnedLimitReached": {
+    "message": "免费版最多保存 $COUNT$ 条常用链接。",
+    "placeholders": { "count": { "content": "$1" } }
+  },
+  "pinnedLinkNotFound": { "message": "未找到该常用链接。" },
+  "dashboardNavPinned": { "message": "常用链接" },
+  "assignConsolidateWindowsPrompt": {
+    "message": "该任务在其他浏览器窗口中已有 $COUNT$ 个标签页。是否将当前标签页移动到那个窗口，以便在同一窗口内合并分组？",
+    "placeholders": { "count": { "content": "$1" } }
+  },
+  "assignPromptSavePinned": { "message": "保存为常用链接" },
+  "assignPromptPinTitle": { "message": "标题" },
+  "assignPromptPinSave": { "message": "保存" },
   "loading": { "message": "加载中..." },
   "feedbackLink": { "message": "💬 反馈建议" },
   "feedbackUrl": { "message": "https://flox.app/feedback" },

@@ -1,5 +1,6 @@
 import React from "react";
 import { type LanguageCode, t } from "../utils/i18n";
+import { MONETIZATION_ENABLED } from "../utils/plan";
 
 type FeatureKey = "unlimitedWorkspaces" | "crossDeviceSync" | "smartClassification" | "statistics";
 
@@ -27,6 +28,9 @@ export function UpgradePrompt({
   className?: string;
   onClose?: () => void;
 }) {
+  if (!MONETIZATION_ENABLED) {
+    return null;
+  }
   const featureName = getFeatureName(feature, language);
   const openPro = async () => {
     await chrome.tabs.create({ url: t("proLearnMoreUrl", undefined, language) });
