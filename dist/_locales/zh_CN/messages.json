@@ -185,6 +185,13 @@
   "contextMenuPinnedSaved": { "message": "Flox：已保存为常用链接 ✓" },
   "popupTabTabs": { "message": "标签" },
   "popupTabPinned": { "message": "常用" },
+  "popupPinCurrentTab": { "message": "将当前标签页加入常用链接" },
+  "popupPinCurrentTabNoHttp": {
+    "message": "只能保存 http(s) 网页。请先打开普通网站标签页后再试。"
+  },
+  "popupPinCurrentTabAlready": { "message": "该页面已在常用链接中。" },
+  "popupPinCurrentTabNoTab": { "message": "无法读取当前标签页。请先聚焦浏览器窗口后再试。" },
+  "popupPinCurrentTabError": { "message": "添加常用链接失败，请重试。" },
   "pinnedGeneralGroup": { "message": "通用" },
   "pinnedEmpty": { "message": "还没有常用链接。" },
   "pinnedAddLink": { "message": "+ 添加常用链接" },

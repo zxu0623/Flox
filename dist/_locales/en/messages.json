@@ -185,6 +185,13 @@
   "contextMenuPinnedSaved": { "message": "Flox: Saved as pinned link ✓" },
   "popupTabTabs": { "message": "Tabs" },
   "popupTabPinned": { "message": "Pinned" },
+  "popupPinCurrentTab": { "message": "Pin current tab as link" },
+  "popupPinCurrentTabNoHttp": {
+    "message": "Only http(s) pages can be saved. Open a normal website tab and try again."
+  },
+  "popupPinCurrentTabAlready": { "message": "This page is already in your pinned links." },
+  "popupPinCurrentTabNoTab": { "message": "Could not read the active tab. Focus a browser window and try again." },
+  "popupPinCurrentTabError": { "message": "Could not add pinned link. Please try again." },
   "pinnedGeneralGroup": { "message": "General" },
   "pinnedEmpty": { "message": "No pinned links yet." },
   "pinnedAddLink": { "message": "+ Add pinned link" },

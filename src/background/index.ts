@@ -280,6 +280,14 @@ function getDomain(url: string): string {
   }
 }
 
+function isFloxDashboardPageUrl(url: string): boolean {
+  if (!url) {
+    return false;
+  }
+  const dash = chrome.runtime.getURL("dashboard.html");
+  return url === dash || url.startsWith(`${dash}?`) || url.startsWith(`${dash}#`);
+}
+
 function normalizePinnedKey(url: string): string | null {
   try {
     const parsed = new URL(url);
@@ -355,6 +363,40 @@ async function savePinnedFromTab(tab: chrome.tabs.Tab): Promise<void> {
     favIconUrl: tab.favIconUrl ?? "",
     workspaceId: rec?.workspaceId ?? null
   });
+}
+
+type AddCurrentTabPinnedResult =
+  | { ok: true; link: Awaited<ReturnType<typeof addPinnedLink>> }
+  | { ok: false; code: "no_tab" | "no_http" | "already_pinned" | "pinned_limit" | "error" };
+
+async function tryAddPinnedFromActiveTab(): Promise<AddCurrentTabPinnedResult> {
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  if (!tab?.url || typeof tab.id !== "number") {
+    return { ok: false, code: "no_tab" };
+  }
+  if (!tab.url.startsWith("http")) {
+    return { ok: false, code: "no_http" };
+  }
+  if (await isUrlAlreadyPinned(tab.url)) {
+    return { ok: false, code: "already_pinned" };
+  }
+  try {
+    const records = await getTabRecords();
+    const rec = records.find((row) => row.tabId === tab.id);
+    const link = await addPinnedLink({
+      url: tab.url,
+      title: tab.title?.trim() || tab.url,
+      favIconUrl: tab.favIconUrl ?? "",
+      workspaceId: rec?.workspaceId ?? null
+    });
+    await syncPinnedPageMenuForActiveTab();
+    return { ok: true, link };
+  } catch (err) {
+    if (err instanceof Error && err.message === "PINNED_LIMIT") {
+      return { ok: false, code: "pinned_limit" };
+    }
+    return { ok: false, code: "error" };
+  }
 }
 
 async function syncPinnedPageMenuForTab(tab: chrome.tabs.Tab | undefined): Promise<void> {
@@ -778,7 +820,9 @@ async function buildSnapshot() {
   return {
     totalTabs: tabItems.length,
     idleTabs: tabItems.filter((tab) => now - tab.lastAccessed > idleThresholdMs),
-    unassignedTabs: tabItems.filter((tab) => tab.workspaceId === null),
+    unassignedTabs: tabItems.filter(
+      (tab) => tab.workspaceId === null && !isFloxDashboardPageUrl(tab.url)
+    ),
     workspaces: workspaceItems,
     weekly: week,
     usageRanking: workspaceItems
@@ -1293,6 +1337,15 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
           const rawUrl = typeof message.url === "string" ? message.url.trim() : "";
           const preview = await fetchLinkPreview(rawUrl);
           sendResponse({ ok: true, title: preview.title, favIconUrl: preview.favIconUrl });
+          break;
+        }
+        case "popup:addCurrentTabPinned": {
+          const result = await tryAddPinnedFromActiveTab();
+          if (result.ok) {
+            sendResponse({ ok: true, link: result.link });
+          } else {
+            sendResponse({ ok: false, code: result.code });
+          }
           break;
         }
         case "popup:addPinnedLink":

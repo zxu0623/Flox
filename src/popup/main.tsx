@@ -272,6 +272,31 @@ function PopupApp() {
     });
   };
 
+  const handlePinCurrentTab = async () => {
+    setLoadingKey("pin-current-tab");
+    try {
+      const res = await sendMessage<{ ok: boolean; code?: string }>({ type: "popup:addCurrentTabPinned" });
+      if (res.ok) {
+        await refreshSnapshot();
+        setMainTab("pinned");
+        return;
+      }
+      if (res.code === "no_http") {
+        window.alert(t("popupPinCurrentTabNoHttp", undefined, language));
+      } else if (res.code === "already_pinned") {
+        window.alert(t("popupPinCurrentTabAlready", undefined, language));
+      } else if (res.code === "pinned_limit") {
+        window.alert(t("pinnedUpgradeHint", [String(PLAN_LIMITS.FREE.maxPinnedLinks)], language));
+      } else if (res.code === "no_tab") {
+        window.alert(t("popupPinCurrentTabNoTab", undefined, language));
+      } else {
+        window.alert(t("popupPinCurrentTabError", undefined, language));
+      }
+    } finally {
+      setLoadingKey(null);
+    }
+  };
+
   const refreshSnapshot = async () => {
     try {
       const response = await sendMessage<{ ok: boolean; data: PopupSnapshot }>({ type: "popup:getSnapshot" });
@@ -712,6 +737,24 @@ function PopupApp() {
             {t("popupTabPinned", undefined, language)}
           </button>
         </div>
+        <button
+          type="button"
+          disabled={loadingKey === "pin-current-tab"}
+          onClick={() => void handlePinCurrentTab()}
+          className="tooltip-trigger mt-2 flex w-full items-center justify-center gap-2 rounded-md bg-teal-500 px-3 py-2 text-sm font-bold text-white shadow-md shadow-teal-950/35 ring-1 ring-teal-300/40 hover:bg-teal-400 active:bg-teal-600 disabled:opacity-50 disabled:shadow-none"
+          data-tooltip={t("commandSavePinned", undefined, language)}
+        >
+          {loadingKey === "pin-current-tab" ? (
+            t("loading", undefined, language)
+          ) : (
+            <>
+              <svg className="h-4 w-4 shrink-0" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
+                <path d="M17 3H7a2 2 0 0 0-2 2v16l7-3.33L19 21V5a2 2 0 0 0-2-2Z" />
+              </svg>
+              <span>{t("popupPinCurrentTab", undefined, language)}</span>
+            </>
+          )}
+        </button>
       </header>
 
       {mainTab === "tabs" && snapshot.idleTabs.length > 0 ? (
