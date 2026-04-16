@@ -298,6 +298,7 @@
   "settingsDisabled": { "message": "Disabled" },
   "settingsTabWarningThreshold": { "message": "Tab warning threshold" },
   "settingsAutoGroup": { "message": "Auto create Chrome tab groups" },
+  "settingsAutoMoveAssignedTabs": { "message": "Allow moving assigned tabs into the workspace's other window" },
   "settingsAutoAssignPrompt": { "message": "Auto prompt assignment for new unclassified tabs" },
   "settingsIgnoredDomains": { "message": "Ignored websites" },
   "settingsNoIgnoredDomains": { "message": "No ignored domains yet." },

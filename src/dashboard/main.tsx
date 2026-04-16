@@ -378,6 +378,7 @@ function DashboardApp() {
     idleThresholdMinutes: 120,
     tabWarningThreshold: 20,
     autoCreateTabGroup: true,
+    autoMoveAssignedTabs: false,
     autoAssignPrompt: true
   });
   const [ignoredDomains, setIgnoredDomains] = React.useState<string[]>([]);
@@ -426,6 +427,7 @@ function DashboardApp() {
           idleThresholdMinutes: savedSettings.idleThresholdMinutes ?? 120,
           tabWarningThreshold: savedSettings.tabWarningThreshold ?? 20,
           autoCreateTabGroup: savedSettings.autoCreateTabGroup !== false,
+          autoMoveAssignedTabs: savedSettings.autoMoveAssignedTabs === true,
           autoAssignPrompt: savedSettings.autoAssignPrompt !== false
         });
       }
@@ -1815,6 +1817,16 @@ function DashboardApp() {
                     onChange={(event) => void saveSettings({ ...settings, autoCreateTabGroup: event.target.checked })}
                   />
                   {t("settingsAutoGroup", undefined, language)}
+                </label>
+              </div>
+              <div className="rounded border border-zinc-200 dark:border-zinc-800 bg-zinc-100 dark:bg-zinc-900 p-4">
+                <label className="flex items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={settings.autoMoveAssignedTabs}
+                    onChange={(event) => void saveSettings({ ...settings, autoMoveAssignedTabs: event.target.checked })}
+                  />
+                  {t("settingsAutoMoveAssignedTabs", undefined, language)}
                 </label>
               </div>
               <div className="rounded border border-zinc-200 dark:border-zinc-800 bg-zinc-100 dark:bg-zinc-900 p-4">

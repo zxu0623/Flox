@@ -124,6 +124,7 @@ type RuntimeSettings = {
   idleThresholdMinutes: number;
   tabWarningThreshold: number;
   autoCreateTabGroup: boolean;
+  autoMoveAssignedTabs: boolean;
   autoAssignPrompt: boolean;
 };
 
@@ -136,6 +137,7 @@ async function getRuntimeSettings(): Promise<RuntimeSettings> {
     tabWarningThreshold:
       typeof value.tabWarningThreshold === "number" ? value.tabWarningThreshold : DEFAULT_TAB_WARNING_THRESHOLD,
     autoCreateTabGroup: value.autoCreateTabGroup !== false,
+    autoMoveAssignedTabs: value.autoMoveAssignedTabs === true,
     autoAssignPrompt: value.autoAssignPrompt !== false
   };
 }
@@ -148,6 +150,7 @@ async function setRuntimeSettingsPartial(updates: Partial<RuntimeSettings>): Pro
       idleThresholdMinutes: next.idleThresholdMinutes,
       tabWarningThreshold: next.tabWarningThreshold,
       autoCreateTabGroup: next.autoCreateTabGroup,
+      autoMoveAssignedTabs: next.autoMoveAssignedTabs,
       autoAssignPrompt: next.autoAssignPrompt
     }
   });
@@ -654,6 +657,7 @@ async function assignAndPersistTab(
     nextWorkspaceId &&
     assignedWorkspace &&
     settings.autoCreateTabGroup &&
+    settings.autoMoveAssignedTabs &&
     assignmentChanged &&
     !options?.skipConsolidatePrompt &&
     !silentSkipListAssign
@@ -1079,7 +1083,14 @@ async function moveTabToWorkspace(tabId: number, workspaceId: string | null, opt
   const recordsBefore = await getTabRecords();
   const currentBefore = recordsBefore.find((item) => item.tabId === tabId);
 
-  if (workspaceId && typeof tab.windowId === "number" && !options?.skipConsolidatePrompt) {
+  const settings = await getRuntimeSettings();
+
+  if (
+    workspaceId &&
+    typeof tab.windowId === "number" &&
+    settings.autoMoveAssignedTabs &&
+    !options?.skipConsolidatePrompt
+  ) {
     const consolidate = await getWorkspaceConsolidationTarget(tabId, workspaceId, tab.windowId);
     if (consolidate) {
       const lang = await getStoredLanguage();
@@ -1367,7 +1378,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
           break;
         }
         case "dashboard:assignTab":
-          await moveTabToWorkspace(message.tabId, message.workspaceId ?? null);
+          await moveTabToWorkspace(message.tabId, message.workspaceId ?? null, { skipConsolidatePrompt: true });
           sendResponse({ ok: true });
           break;
         case "dashboard:focusTab": {
@@ -1464,7 +1475,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
         }
         case "content:assignWorkspace":
           if (_sender.tab?.id) {
-            await moveTabToWorkspace(_sender.tab.id, message.workspaceId ?? null);
+            await moveTabToWorkspace(_sender.tab.id, message.workspaceId ?? null, { skipConsolidatePrompt: true });
             await scanAndSyncAllTabs();
           }
           sendResponse({ ok: true });
@@ -1674,7 +1685,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
             color,
             urlPatterns: domain ? [domain] : []
           });
-          await moveTabToWorkspace(tabId, newWorkspace.id);
+          await moveTabToWorkspace(tabId, newWorkspace.id, { skipConsolidatePrompt: true });
           await refreshContextMenuTitle();
           await scanAndSyncAllTabs();
           sendResponse({ ok: true, workspaceId: newWorkspace.id });
@@ -1728,7 +1739,7 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
         color: "#6366f1",
         urlPatterns: []
       });
-      await moveTabToWorkspace(tab.id, newWorkspace.id);
+      await moveTabToWorkspace(tab.id, newWorkspace.id, { skipConsolidatePrompt: true });
       await scanAndSyncAllTabs();
       await refreshContextMenuTitle();
       return;
@@ -1736,7 +1747,7 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
 
     if (typeof info.menuItemId === "string" && info.menuItemId.startsWith(ASSIGN_WORKSPACE_PREFIX)) {
       const workspaceId = info.menuItemId.replace(ASSIGN_WORKSPACE_PREFIX, "");
-      await moveTabToWorkspace(tab.id, workspaceId);
+      await moveTabToWorkspace(tab.id, workspaceId, { skipConsolidatePrompt: true });
       await scanAndSyncAllTabs();
     }
   });

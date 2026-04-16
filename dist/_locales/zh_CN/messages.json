@@ -296,6 +296,7 @@
   "settingsDisabled": { "message": "关闭" },
   "settingsTabWarningThreshold": { "message": "标签页数量警告阈值" },
   "settingsAutoGroup": { "message": "自动创建 Chrome 标签页分组" },
+  "settingsAutoMoveAssignedTabs": { "message": "允许将已分配标签页移动到该任务所在的其他窗口" },
   "settingsAutoAssignPrompt": { "message": "新标签页自动提示分配" },
   "settingsIgnoredDomains": { "message": "已忽略的网站" },
   "settingsNoIgnoredDomains": { "message": "还没有已忽略的网站。" },
