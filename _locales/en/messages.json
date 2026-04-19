@@ -58,7 +58,7 @@
     "placeholders": { "time": { "content": "$1" } }
   },
   "popupIdleDurationHm": {
-    "message": "$HOURS$h $MINUTES$m",
+    "message": "$HOURS$ h $MINUTES$ m",
     "placeholders": { "hours": { "content": "$1" }, "minutes": { "content": "$2" } }
   },
   "popupIdleCloseWorkspaceConfirm": {
@@ -104,8 +104,8 @@
   "popupNoTabs": { "message": "No tabs" },
   "popupUnknownTitle": { "message": "Untitled page" },
   "popupProPageUrl": { "message": "dashboard.html?section=pro" },
-  "popupHoursAgo": { "message": "$COUNT$h ago", "placeholders": { "count": { "content": "$1" } } },
-  "popupMinutesAgo": { "message": "$COUNT$m ago", "placeholders": { "count": { "content": "$1" } } },
+  "popupHoursAgo": { "message": "$COUNT$ h ago", "placeholders": { "count": { "content": "$1" } } },
+  "popupMinutesAgo": { "message": "$COUNT$ m ago", "placeholders": { "count": { "content": "$1" } } },
   "popupJustNow": { "message": "Just now" },
   "popupUpgradeProPrompt": { "message": "Upgrade to Pro to unlock unlimited tasks." },
   "popupCreateTaskTitle": { "message": "Create Workspace" },

@@ -37,18 +37,18 @@ export function UpgradePrompt({
   };
 
   return (
-    <div className={`rounded-xl border border-amber-300 dark:border-amber-500/25 bg-amber-50 dark:bg-amber-950/20 p-4 ${className}`}>
-      <p className="text-sm text-amber-950 dark:text-amber-100">{t("upgradeProUnlockFeature", [featureName], language)}</p>
+    <div className={`rounded-xl border border-[var(--line)] bg-[var(--paper-2)] p-4 shadow-[var(--shadow-sm)] ${className}`}>
+      <p className="text-sm text-[var(--ink)]">{t("upgradeProUnlockFeature", [featureName], language)}</p>
       <div className="mt-3 flex items-center gap-2">
         <button
           type="button"
           onClick={() => void openPro()}
-          className="rounded-md bg-amber-400 px-3 py-1.5 text-xs font-medium text-zinc-900 hover:bg-amber-300 transition-colors duration-100"
+          className="rounded-lg border border-[var(--line-strong)] bg-[var(--paper)] px-3 py-1.5 text-xs font-medium text-[var(--ink)] shadow-[var(--shadow-sm)] transition-colors hover:bg-[var(--paper-3)]"
         >
           {t("learnFloxPro", undefined, language)}
         </button>
         {onClose ? (
-          <button type="button" onClick={onClose} className="text-xs text-amber-800 dark:text-amber-300/70 hover:text-amber-900 dark:text-amber-200 transition-colors duration-100">
+          <button type="button" onClick={onClose} className="text-xs text-[var(--muted)] hover:text-[var(--ink)] hover:underline">
             {t("popupClose", undefined, language)}
           </button>
         ) : null}

@@ -5,7 +5,7 @@
   (async () => {
     const { onExecute } = await import(
       /* @vite-ignore */
-      chrome.runtime.getURL("assets/duplicate-tab-prompt.tsx-Dwv-Q210.js")
+      chrome.runtime.getURL("assets/duplicate-tab-prompt.tsx-ChsKlO5e.js")
     );
     onExecute?.({ perf: { injectTime, loadTime: performance.now() - injectTime } });
   })().catch(console.error);

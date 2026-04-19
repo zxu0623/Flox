@@ -4,7 +4,11 @@
     {
       "name": "flox-dev",
       "runtimeExecutable": "npm",
+<<<<<<< HEAD
       "runtimeArgs": ["run", "dev"],
+=======
+      "runtimeArgs": ["run", "dev", "--prefix", "/Users/xuxinhe/Desktop/Flox"],
+>>>>>>> claude/wizardly-noyce
       "port": 5173
     }
   ]

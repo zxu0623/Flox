@@ -1,3 +1,32 @@
+// Apply persisted light/dark theme before React mounts to avoid FOUC.
+(function bootFloxTheme() {
+  const apply = (light: boolean) => {
+    const h = document.documentElement;
+    if (light) {
+      h.classList.remove("dark");
+      h.style.colorScheme = "light";
+      document.body?.classList.remove("dark");
+    } else {
+      h.classList.add("dark");
+      h.style.colorScheme = "dark";
+      document.body?.classList.add("dark");
+    }
+  };
+  try {
+    const c = sessionStorage.getItem("flox.uiTheme.session");
+    if (c === "light") apply(true);
+    else if (c === "dark") apply(false);
+  } catch {}
+  try {
+    chrome.storage.local.get("flox.uiTheme", (r) => {
+      const light = r["flox.uiTheme"] === "light";
+      apply(light);
+      try {
+        sessionStorage.setItem("flox.uiTheme.session", light ? "light" : "dark");
+      } catch {}
+    });
+  } catch {}
+})();
 import React from "react";
 import ReactDOM from "react-dom/client";
 import { DndContext, DragOverlay, PointerSensor, closestCenter, useDraggable, useDroppable, useSensor, useSensors } from "@dnd-kit/core";
@@ -11,9 +40,12 @@ import { UpgradePrompt } from "../components/UpgradePrompt";
 import { FloxLogo } from "../components/FloxLogo";
 import { checkFeature, MONETIZATION_ENABLED, PLAN_LIMITS } from "../utils/plan";
 import {
+  applyAccentHueToDocument,
   applyUiThemeToDocument,
+  getStoredAccentHue,
   getStoredUiTheme,
   setStoredUiTheme,
+  ACCENT_HUE_STORAGE_KEY,
   UI_THEME_STORAGE_KEY,
   type UiTheme
 } from "../utils/theme";
@@ -168,13 +200,13 @@ function SortableWorkspaceItem({
       {...attributes}
       {...listeners}
       onClick={() => onSelect(workspace.id)}
-      className={`flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-[13px] font-medium transition-colors duration-100 ${selected ? "bg-zinc-200 dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100" : "text-zinc-600 dark:text-zinc-400 hover:bg-zinc-200 dark:bg-zinc-800/60 hover:text-zinc-800 dark:text-zinc-200"}`}
+      className={`flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-[13px] font-medium transition-colors duration-100 ${selected ? "bg-[var(--paper-3)] text-[var(--ink)]" : "text-[var(--muted)] hover:bg-[var(--paper-3)]/80 hover:text-[var(--ink)]"}`}
     >
       <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: workspace.color }} />
       <span className="truncate">{t(workspace.name, undefined, language)}</span>
-      <span className="ml-auto text-xs text-zinc-600 dark:text-zinc-400">{workspace.tabCount}</span>
+      <span className="ml-auto text-xs text-[var(--muted)]">{workspace.tabCount}</span>
       {workspace.stashedCount > 0 ? <span title={t("dashboardStashed", undefined, language)}>📦</span> : null}
-      {activeId === workspace.id ? <span className="text-xs text-amber-400">•</span> : null}
+      {activeId === workspace.id ? <span className="text-xs text-[var(--accent)]">•</span> : null}
     </button>
   );
 }
@@ -212,14 +244,14 @@ function SortablePinCard({
       ref={setNodeRef}
       style={style}
       {...attributes}
-      className={`group relative rounded-lg border border-zinc-200/70 dark:border-zinc-800/60 bg-zinc-100/90 dark:bg-zinc-900/50 p-3 ${
-        isDragging ? "z-10 opacity-90 ring-2 ring-amber-400/60" : ""
+      className={`group relative rounded-lg border border-[var(--line)] bg-[var(--paper-2)] p-3 ${
+        isDragging ? "z-10 opacity-90 ring-2 ring-[var(--accent)]/50" : ""
       }`}
     >
       <div className="flex gap-2">
         <button
           type="button"
-          className="mt-0.5 shrink-0 cursor-grab touch-none text-zinc-600 dark:text-zinc-500 hover:text-zinc-700 dark:text-zinc-300"
+          className="mt-0.5 shrink-0 cursor-grab touch-none text-[var(--muted)] hover:text-[var(--ink-2)]"
           {...listeners}
           aria-label="Drag"
         >
@@ -236,18 +268,18 @@ function SortablePinCard({
               className="h-5 w-5 shrink-0 rounded-sm"
             />
             <div className="min-w-0">
-              <p className="truncate text-sm font-medium text-zinc-900 dark:text-zinc-100">{link.title}</p>
-              <p className="truncate text-xs text-zinc-600 dark:text-zinc-500">{link.domain}</p>
-              <span className="mt-1 inline-block rounded bg-zinc-200 dark:bg-zinc-800 px-1.5 py-0.5 text-[10px] text-zinc-600 dark:text-zinc-400">{workspaceLabel}</span>
+              <p className="truncate text-sm font-medium text-[var(--ink)]">{link.title}</p>
+              <p className="truncate text-xs text-[var(--muted)]">{link.domain}</p>
+              <span className="mt-1 inline-block rounded bg-[var(--paper-3)] px-1.5 py-0.5 text-[10px] text-[var(--muted)]">{workspaceLabel}</span>
             </div>
           </div>
         </button>
       </div>
       <div className="mt-2 hidden flex-wrap gap-2 group-hover:flex">
-        <button type="button" className="rounded border border-zinc-300 dark:border-zinc-700 px-2 py-0.5 text-xs" onClick={onOpen}>
+        <button type="button" className="rounded border border-[var(--line)] px-2 py-0.5 text-xs" onClick={onOpen}>
           {t("pinnedOpen", undefined, language)}
         </button>
-        <button type="button" className="rounded border border-zinc-300 dark:border-zinc-700 px-2 py-0.5 text-xs" onClick={onEdit}>
+        <button type="button" className="rounded border border-[var(--line)] px-2 py-0.5 text-xs" onClick={onEdit}>
           {t("pinnedEdit", undefined, language)}
         </button>
         <button type="button" className="rounded border border-rose-300 dark:border-rose-800 px-2 py-0.5 text-xs text-rose-800 dark:text-rose-300" onClick={onDelete}>
@@ -280,14 +312,14 @@ function TabCard({
     <div
       ref={setNodeRef}
       style={style}
-      className={`group rounded-lg border border-zinc-200/70 dark:border-zinc-800/60 bg-zinc-100/90 dark:bg-zinc-900/50 p-3 transition-all duration-200 hover:-translate-y-0.5 hover:border-zinc-300 dark:border-zinc-700 hover:shadow-lg hover:shadow-zinc-400/15 dark:hover:shadow-black/30 ${
+      className={`group rounded-lg border border-[var(--line)] bg-[var(--paper-2)] p-3 transition-all duration-200 hover:-translate-y-0.5 hover:border-[var(--line-strong)] hover:shadow-[var(--shadow-md)] ${
         isClosing ? "translate-y-1 opacity-0" : "opacity-100"
       }`}
     >
       <div className="flex items-start gap-2">
         <button
           type="button"
-          className="mt-0.5 shrink-0 cursor-grab touch-none text-zinc-600 dark:text-zinc-500 hover:text-zinc-700 dark:text-zinc-300"
+          className="mt-0.5 shrink-0 cursor-grab touch-none text-[var(--muted)] hover:text-[var(--ink-2)]"
           {...listeners}
           {...attributes}
           aria-label="Drag"
@@ -297,7 +329,7 @@ function TabCard({
         {onGoToTab ? (
           <button
             type="button"
-            className="min-w-0 flex-1 rounded text-left outline-none ring-amber-400/0 hover:ring-2 focus-visible:ring-2"
+            className="min-w-0 flex-1 rounded text-left outline-none ring-[var(--accent)]/0 hover:ring-[var(--accent)] focus-visible:ring-[var(--accent)]"
             onClick={() => onGoToTab(tab.tabId)}
           >
             <img
@@ -305,9 +337,9 @@ function TabCard({
               alt=""
               className="mb-1 h-4 w-4 rounded-sm"
             />
-            <p className="truncate text-sm text-zinc-900 dark:text-zinc-100">{tab.title || t("popupUnknownTitle", undefined, language)}</p>
-            <p className="truncate text-xs text-amber-400/90 hover:underline">{tab.domain}</p>
-            <p className="mt-1 text-[11px] text-zinc-600 dark:text-zinc-500">{formatAgo(tab.lastAccessed, language)}</p>
+            <p className="truncate text-sm text-[var(--ink)]">{tab.title || t("popupUnknownTitle", undefined, language)}</p>
+            <p className="truncate text-xs text-[var(--accent)]/90 hover:underline">{tab.domain}</p>
+            <p className="mt-1 text-[11px] text-[var(--muted)]">{formatAgo(tab.lastAccessed, language)}</p>
           </button>
         ) : (
           <div className="min-w-0 flex-1">
@@ -316,9 +348,9 @@ function TabCard({
               alt=""
               className="mb-1 h-4 w-4 rounded-sm"
             />
-            <p className="truncate text-sm text-zinc-900 dark:text-zinc-100">{tab.title || t("popupUnknownTitle", undefined, language)}</p>
-            <p className="truncate text-xs text-zinc-600 dark:text-zinc-400">{tab.domain}</p>
-            <p className="mt-1 text-[11px] text-zinc-600 dark:text-zinc-500">{formatAgo(tab.lastAccessed, language)}</p>
+            <p className="truncate text-sm text-[var(--ink)]">{tab.title || t("popupUnknownTitle", undefined, language)}</p>
+            <p className="truncate text-xs text-[var(--muted)]">{tab.domain}</p>
+            <p className="mt-1 text-[11px] text-[var(--muted)]">{formatAgo(tab.lastAccessed, language)}</p>
           </div>
         )}
         <div className="hidden flex-col gap-1 group-hover:flex">
@@ -328,7 +360,7 @@ function TabCard({
               event.stopPropagation();
               onMove(tab.tabId);
             }}
-            className="text-xs text-amber-400"
+            className="text-xs text-[var(--accent)]"
           >
             {t("dashboardMoveTo", undefined, language)}
           </button>
@@ -347,7 +379,7 @@ function TabCard({
       {staleMs > 4 * 60 * 60 * 1000 ? (
         <p className="mt-2 flex items-center gap-1 text-[11px] text-rose-800 dark:text-rose-300"><span className="h-2 w-2 rounded-full bg-rose-500" />{t("dashboardIdleLong", undefined, language)}</p>
       ) : staleMs > 60 * 60 * 1000 ? (
-        <p className="mt-2 flex items-center gap-1 text-[11px] text-amber-800 dark:text-amber-300"><span className="h-2 w-2 rounded-full bg-amber-500" />{t("dashboardIdleShort", undefined, language)}</p>
+        <p className="mt-2 flex items-center gap-1 text-[11px] text-[var(--signal)]"><span className="h-2 w-2 rounded-full bg-[var(--signal)]" />{t("dashboardIdleShort", undefined, language)}</p>
       ) : null}
     </div>
   );
@@ -411,6 +443,7 @@ function DashboardApp() {
       setUiTheme(theme);
       applyUiThemeToDocument(theme);
     });
+    void getStoredAccentHue().then(applyAccentHueToDocument);
   }, []);
 
   React.useEffect(() => {
@@ -448,6 +481,11 @@ function DashboardApp() {
         if (themeChange?.newValue === "light" || themeChange?.newValue === "dark") {
           setUiTheme(themeChange.newValue);
           applyUiThemeToDocument(themeChange.newValue);
+        }
+        const hueChange = changes[ACCENT_HUE_STORAGE_KEY];
+        if (hueChange?.newValue !== undefined) {
+          const n = Number(hueChange.newValue);
+          if (Number.isFinite(n)) applyAccentHueToDocument(n);
         }
       }
     };
@@ -974,57 +1012,66 @@ function DashboardApp() {
         setDraggingWorkspaceId(null);
       }}
     >
-      <main className="flex min-h-screen bg-zinc-50 dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100 antialiased">
-        <aside className="flex w-[220px] shrink-0 flex-col border-r border-zinc-200/70 dark:border-zinc-800/60 bg-zinc-100/90 dark:bg-zinc-900/50 p-3">
+      <main className="flex min-h-screen bg-[var(--paper)] text-[var(--ink)] antialiased">
+        <aside className="flex w-[220px] shrink-0 flex-col border-r border-[var(--line)] bg-[var(--paper-2)] p-3">
           <div className="mb-4 flex items-start justify-between gap-2 px-1">
             <div className="min-w-0">
               <h1 className="m-0 p-0" aria-label={t("appName", undefined, language)}>
                 <FloxLogo size="lg" />
               </h1>
-              <p className="text-[11px] text-zinc-600 dark:text-zinc-500">{t("tagline", undefined, language)}</p>
+              <p className="text-[11px] text-[var(--muted)]">{t("tagline", undefined, language)}</p>
             </div>
             <button
               type="button"
               onClick={() => void toggleUiTheme()}
-              className="tooltip-trigger shrink-0 rounded-md border border-zinc-300 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-900 px-2 py-1 text-sm leading-none text-zinc-800 dark:text-zinc-200 hover:bg-zinc-200 dark:hover:bg-zinc-800"
+              className="tooltip-trigger inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-[var(--line)] bg-[var(--paper)] text-[var(--ink-2)] transition-colors hover:bg-[var(--paper-3)] hover:text-[var(--accent)]"
               aria-label={uiTheme === "dark" ? t("themeSwitchToLight", undefined, language) : t("themeSwitchToDark", undefined, language)}
               data-tooltip={uiTheme === "dark" ? t("themeSwitchToLight", undefined, language) : t("themeSwitchToDark", undefined, language)}
             >
-              {uiTheme === "dark" ? "☀️" : "🌙"}
+              {uiTheme === "dark" ? (
+                <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                  <circle cx="12" cy="12" r="4" />
+                  <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41" />
+                </svg>
+              ) : (
+                <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                  <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79Z" />
+                </svg>
+              )}
             </button>
           </div>
 
           <div className="space-y-0.5 text-[13px]">
-            <button type="button" onClick={() => setView("overview")} className={`w-full rounded-md px-2.5 py-1.5 text-left font-medium transition-colors duration-100 ${view === "overview" ? "bg-zinc-200 dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100" : "text-zinc-600 dark:text-zinc-400 hover:bg-zinc-200 dark:bg-zinc-800/60 hover:text-zinc-800 dark:text-zinc-200"}`}>{t("dashboardNavOverview", undefined, language)}</button>
-            <button type="button" onClick={() => setView("unassigned")} className={`w-full rounded-md px-2.5 py-1.5 text-left font-medium transition-colors duration-100 ${view === "unassigned" ? "bg-zinc-200 dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100" : "text-zinc-600 dark:text-zinc-400 hover:bg-zinc-200 dark:bg-zinc-800/60 hover:text-zinc-800 dark:text-zinc-200"}`}>{t("dashboardNavUnassigned", undefined, language)}</button>
-            <button type="button" onClick={() => setView("stashed")} className={`w-full rounded-md px-2.5 py-1.5 text-left font-medium transition-colors duration-100 ${view === "stashed" ? "bg-zinc-200 dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100" : "text-zinc-600 dark:text-zinc-400 hover:bg-zinc-200 dark:bg-zinc-800/60 hover:text-zinc-800 dark:text-zinc-200"}`}>{t("dashboardNavStashed", undefined, language)}</button>
-            <button type="button" onClick={() => setView("stats")} className={`w-full rounded-md px-2.5 py-1.5 text-left font-medium transition-colors duration-100 ${view === "stats" ? "bg-zinc-200 dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100" : "text-zinc-600 dark:text-zinc-400 hover:bg-zinc-200 dark:bg-zinc-800/60 hover:text-zinc-800 dark:text-zinc-200"}`}>{t("dashboardNavStats", undefined, language)}</button>
-            <button type="button" onClick={() => setView("pinned")} className={`w-full rounded-md px-2.5 py-1.5 text-left font-medium transition-colors duration-100 ${view === "pinned" ? "bg-zinc-200 dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100" : "text-zinc-600 dark:text-zinc-400 hover:bg-zinc-200 dark:bg-zinc-800/60 hover:text-zinc-800 dark:text-zinc-200"}`}>{t("dashboardNavPinned", undefined, language)}</button>
+            <button type="button" onClick={() => setView("overview")} className={`w-full rounded-md px-2.5 py-1.5 text-left font-medium transition-colors duration-100 ${view === "overview" ? "bg-[var(--paper-3)] text-[var(--ink)]" : "text-[var(--muted)] hover:bg-[var(--paper-3)]/80 hover:text-[var(--ink)]"}`}>{t("dashboardNavOverview", undefined, language)}</button>
+            <button type="button" onClick={() => setView("unassigned")} className={`w-full rounded-md px-2.5 py-1.5 text-left font-medium transition-colors duration-100 ${view === "unassigned" ? "bg-[var(--paper-3)] text-[var(--ink)]" : "text-[var(--muted)] hover:bg-[var(--paper-3)]/80 hover:text-[var(--ink)]"}`}>{t("dashboardNavUnassigned", undefined, language)}</button>
+            <button type="button" onClick={() => setView("stashed")} className={`w-full rounded-md px-2.5 py-1.5 text-left font-medium transition-colors duration-100 ${view === "stashed" ? "bg-[var(--paper-3)] text-[var(--ink)]" : "text-[var(--muted)] hover:bg-[var(--paper-3)]/80 hover:text-[var(--ink)]"}`}>{t("dashboardNavStashed", undefined, language)}</button>
+            <button type="button" onClick={() => setView("stats")} className={`w-full rounded-md px-2.5 py-1.5 text-left font-medium transition-colors duration-100 ${view === "stats" ? "bg-[var(--paper-3)] text-[var(--ink)]" : "text-[var(--muted)] hover:bg-[var(--paper-3)]/80 hover:text-[var(--ink)]"}`}>{t("dashboardNavStats", undefined, language)}</button>
+            <button type="button" onClick={() => setView("pinned")} className={`w-full rounded-md px-2.5 py-1.5 text-left font-medium transition-colors duration-100 ${view === "pinned" ? "bg-[var(--paper-3)] text-[var(--ink)]" : "text-[var(--muted)] hover:bg-[var(--paper-3)]/80 hover:text-[var(--ink)]"}`}>{t("dashboardNavPinned", undefined, language)}</button>
             <button
               type="button"
               onClick={() => setView("skipUrlList")}
-              className={`w-full rounded-md px-2.5 py-1.5 text-left font-medium transition-colors duration-100 ${view === "skipUrlList" ? "bg-zinc-200 dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100" : "text-zinc-600 dark:text-zinc-400 hover:bg-zinc-200 dark:bg-zinc-800/60 hover:text-zinc-800 dark:text-zinc-200"}`}
+              className={`w-full rounded-md px-2.5 py-1.5 text-left font-medium transition-colors duration-100 ${view === "skipUrlList" ? "bg-[var(--paper-3)] text-[var(--ink)]" : "text-[var(--muted)] hover:bg-[var(--paper-3)]/80 hover:text-[var(--ink)]"}`}
             >
               {t("dashboardNavAssignPromptSkip", undefined, language)}
             </button>
             <button
               type="button"
               onClick={() => setView("taskGroups")}
-              className={`w-full rounded-md px-2.5 py-1.5 text-left font-medium transition-colors duration-100 ${view === "taskGroups" ? "bg-zinc-200 dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100" : "text-zinc-600 dark:text-zinc-400 hover:bg-zinc-200 dark:bg-zinc-800/60 hover:text-zinc-800 dark:text-zinc-200"}`}
+              className={`w-full rounded-md px-2.5 py-1.5 text-left font-medium transition-colors duration-100 ${view === "taskGroups" ? "bg-[var(--paper-3)] text-[var(--ink)]" : "text-[var(--muted)] hover:bg-[var(--paper-3)]/80 hover:text-[var(--ink)]"}`}
             >
               {t("dashboardNavTaskGroups", undefined, language)}
             </button>
-            <button type="button" onClick={() => setView("settings")} className={`w-full rounded-md px-2.5 py-1.5 text-left font-medium transition-colors duration-100 ${view === "settings" ? "bg-zinc-200 dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100" : "text-zinc-600 dark:text-zinc-400 hover:bg-zinc-200 dark:bg-zinc-800/60 hover:text-zinc-800 dark:text-zinc-200"}`}>{t("settingsTitle", undefined, language)}</button>
+            <button type="button" onClick={() => setView("settings")} className={`w-full rounded-md px-2.5 py-1.5 text-left font-medium transition-colors duration-100 ${view === "settings" ? "bg-[var(--paper-3)] text-[var(--ink)]" : "text-[var(--muted)] hover:bg-[var(--paper-3)]/80 hover:text-[var(--ink)]"}`}>{t("settingsTitle", undefined, language)}</button>
           </div>
 
           <div className="mt-4 flex-1 overflow-y-auto">
             <div className="mb-2 flex items-start justify-between gap-2 px-1">
-              <h2 className="text-[10px] font-semibold uppercase tracking-widest text-zinc-600">{t("workspaceListTitle", undefined, language)}</h2>
+              <h2 className="text-[10px] font-semibold uppercase tracking-widest text-[var(--muted)]">{t("workspaceListTitle", undefined, language)}</h2>
             </div>
             <button
               type="button"
               onClick={() => void openNewWorkspace()}
-              className="tooltip-trigger mb-2 w-full rounded-md border border-zinc-300 dark:border-zinc-700/60 bg-transparent px-2.5 py-1.5 text-left text-[13px] text-zinc-600 dark:text-zinc-400 hover:border-zinc-600 hover:bg-zinc-200 dark:bg-zinc-800/40 hover:text-zinc-800 dark:text-zinc-200 transition-colors duration-100"
+              className="tooltip-trigger mb-2 w-full rounded-md border border-[var(--line)] bg-transparent px-2.5 py-1.5 text-left text-[13px] text-[var(--muted)] transition-colors duration-100 hover:border-[var(--line-strong)] hover:bg-[var(--paper-3)]/40 hover:text-[var(--ink)]"
               data-tooltip={t("tooltipNewTask", undefined, language)}
             >
               {t("dashboardNewTaskButton", undefined, language)}
@@ -1049,9 +1096,9 @@ function DashboardApp() {
             </SortableContext>
           </div>
 
-          <div className="mt-2 border-t border-zinc-200/70 dark:border-zinc-800/60 pt-3">
-            <label className="text-[11px] text-zinc-600">{t("languageLabel", undefined, language)}</label>
-            <select value={language} onChange={handleLanguageChange} className="mt-1 w-full rounded-md border border-zinc-300 dark:border-zinc-700/60 bg-zinc-50 dark:bg-zinc-950 px-2 py-1.5 text-[12px] text-zinc-600 dark:text-zinc-400 focus:outline-none focus:ring-1 focus:ring-amber-400/40">
+          <div className="mt-2 border-t border-[var(--line)] pt-3">
+            <label className="text-[11px] text-[var(--muted)]">{t("languageLabel", undefined, language)}</label>
+            <select value={language} onChange={handleLanguageChange} className="mt-1 w-full rounded-md border border-[var(--line)] bg-[var(--paper)] px-2 py-1.5 text-[12px] text-[var(--muted)] focus:outline-none focus:ring-1 focus:ring-[var(--accent)]/40">
               <option value="auto">{t("languageAuto", undefined, language)}</option>
               <option value="en">{t("languageEnglish", undefined, language)}</option>
               <option value="zh_CN">{t("languageChinese", undefined, language)}</option>
@@ -1060,7 +1107,7 @@ function DashboardApp() {
           {MONETIZATION_ENABLED ? (
             <button
               type="button"
-              className="mt-3 w-full rounded-lg border border-amber-300 dark:border-amber-500/25 bg-amber-50 dark:bg-amber-950/20 px-3 py-2 text-left text-[13px] font-medium text-amber-900 dark:text-amber-200 hover:bg-amber-950/30 transition-colors duration-100"
+              className="mt-3 w-full rounded-lg border border-[var(--accent)]/35 bg-[var(--accent-soft)] px-3 py-2 text-left text-[13px] font-medium text-[var(--accent-ink)] transition-colors duration-100 hover:opacity-90"
               onClick={() => {
                 setView("pro");
                 const next = new URL(window.location.href);
@@ -1077,11 +1124,11 @@ function DashboardApp() {
           {view === "overview" ? (
             <div>
               <div className="flex flex-wrap items-center justify-between gap-2">
-                <h2 className="text-2xl font-bold tracking-tight">{t("dashboardNavOverview", undefined, language)}</h2>
+                <h2 className="font-flox text-[26px] font-semibold tracking-[-0.02em] leading-tight">{t("dashboardNavOverview", undefined, language)}</h2>
                 <button
                   type="button"
                   onClick={() => void openNewWorkspace()}
-                  className="tooltip-trigger rounded bg-amber-400 px-3 py-1.5 text-sm text-zinc-900 font-medium hover:bg-amber-300"
+                  className="tooltip-trigger rounded-lg bg-[var(--accent)] px-3 py-1.5 text-sm font-medium text-white hover:opacity-90"
                   data-tooltip={t("tooltipNewTask", undefined, language)}
                 >
                   {t("dashboardNewTaskButton", undefined, language)}
@@ -1094,7 +1141,7 @@ function DashboardApp() {
                       <span>{t(workspace.name, undefined, language)}</span>
                       <span>{workspace.tabCount}</span>
                     </div>
-                    <div className="h-3 rounded bg-zinc-200 dark:bg-zinc-800">
+                    <div className="h-3 rounded bg-[var(--paper-3)]">
                       <div className="h-full rounded" style={{ width: `${(workspace.tabCount / maxCount) * 100}%`, backgroundColor: workspace.color }} />
                     </div>
                   </div>
@@ -1102,12 +1149,12 @@ function DashboardApp() {
               </div>
               <div className="mt-6 grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
                 {data.workspaces.length === 0 ? (
-                  <div className="rounded-lg border border-zinc-200/70 dark:border-zinc-800/60 bg-zinc-100/90 dark:bg-zinc-900/50 p-4 text-sm text-zinc-700 dark:text-zinc-300">
+                  <div className="rounded-lg border border-[var(--line)] bg-[var(--paper-2)] p-4 text-sm text-[var(--ink-2)]">
                     <p>{t("dashboardNoWorkspace", undefined, language)}</p>
                     <button
                       type="button"
                       onClick={() => void openNewWorkspace()}
-                      className="tooltip-trigger mt-3 rounded bg-amber-400 px-3 py-1.5 text-xs text-zinc-900 font-medium hover:bg-amber-300"
+                      className="tooltip-trigger mt-3 rounded-lg bg-[var(--accent)] px-3 py-1.5 text-xs font-medium text-white hover:opacity-90"
                       data-tooltip={t("tooltipNewTask", undefined, language)}
                     >
                       {t("dashboardNewTaskButton", undefined, language)}
@@ -1116,7 +1163,7 @@ function DashboardApp() {
                 ) : data.workspaces.map((workspace) => {
                   const overviewOpen = overviewExpandedWorkspaceIds.includes(workspace.id);
                   return (
-                    <div key={`card-${workspace.id}`} className="rounded-lg border border-zinc-200/70 dark:border-zinc-800/60 bg-zinc-100/90 dark:bg-zinc-900/50 p-3">
+                    <div key={`card-${workspace.id}`} className="rounded-lg border border-[var(--line)] bg-[var(--paper-2)] p-3">
                       <button
                         type="button"
                         onClick={() => toggleOverviewWorkspaceCard(workspace.id)}
@@ -1126,14 +1173,25 @@ function DashboardApp() {
                           <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: workspace.color }} />
                           {t(workspace.name, undefined, language)}
                         </span>
-                        <span className="flex shrink-0 items-center gap-2 text-xs text-zinc-600 dark:text-zinc-400">
+                        <span className="flex shrink-0 items-center gap-2 text-xs text-[var(--muted)]">
                           <span>{workspace.tabCount}</span>
-                          <span className="text-zinc-600 dark:text-zinc-500">{overviewOpen ? "▼" : "▶"}</span>
+                          <svg
+                            className={`h-3 w-3 shrink-0 text-[var(--muted)] transition-transform duration-150 ${overviewOpen ? "rotate-90" : ""}`}
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="2.25"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            aria-hidden
+                          >
+                            <path d="m9 6 6 6-6 6" />
+                          </svg>
                         </span>
                       </button>
                       <div className="mt-3 flex gap-2">
                         {workspace.recentFavicons.length === 0 ? (
-                          <span className="text-xs text-zinc-600 dark:text-zinc-500">{t("popupNoTabs", undefined, language)}</span>
+                          <span className="text-xs text-[var(--muted)]">{t("popupNoTabs", undefined, language)}</span>
                         ) : (
                           workspace.recentFavicons.map((icon, index) => (
                             <img key={`${workspace.id}-ico-${index}`} src={icon} alt="" className="h-5 w-5 rounded" />
@@ -1141,26 +1199,26 @@ function DashboardApp() {
                         )}
                       </div>
                       {overviewOpen ? (
-                        <div className="mt-3 space-y-2 border-t border-zinc-200 dark:border-zinc-800 pt-3">
+                        <div className="mt-3 space-y-2 border-t border-[var(--line)] pt-3">
                           {workspace.tabs.length === 0 ? (
-                            <p className="text-xs text-zinc-600 dark:text-zinc-500">{t("popupNoTabs", undefined, language)}</p>
+                            <p className="text-xs text-[var(--muted)]">{t("popupNoTabs", undefined, language)}</p>
                           ) : (
                             workspace.tabs.map((tab) => (
                               <div
                                 key={`ov-tab-${workspace.id}-${tab.tabId}`}
-                                className="flex flex-col gap-2 rounded border border-zinc-200/90 dark:border-zinc-800/80 bg-zinc-50 dark:bg-zinc-950/50 p-2 sm:flex-row sm:items-center"
+                                className="flex flex-col gap-2 rounded border border-[var(--line)] bg-[var(--paper)]/80 p-2 sm:flex-row sm:items-center"
                               >
                                 <button
                                   type="button"
                                   onClick={() => focusLiveTab(tab.tabId)}
                                   className="min-w-0 flex-1 text-left"
                                 >
-                                  <p className="truncate text-sm text-zinc-900 dark:text-zinc-100">{tab.title || t("popupUnknownTitle", undefined, language)}</p>
-                                  <p className="truncate text-xs text-amber-400/90 hover:underline">{tab.url || tab.domain}</p>
+                                  <p className="truncate text-sm text-[var(--ink)]">{tab.title || t("popupUnknownTitle", undefined, language)}</p>
+                                  <p className="truncate text-xs text-[var(--accent)]/90 hover:underline">{tab.url || tab.domain}</p>
                                 </button>
                                 <div className="flex flex-wrap items-center gap-2">
                                   <select
-                                    className="max-w-[160px] rounded border border-zinc-300 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-950 px-2 py-1 text-xs"
+                                    className="max-w-[160px] rounded border border-[var(--line)] bg-[var(--paper)] px-2 py-1 text-xs"
                                     defaultValue=""
                                     onChange={(event) => {
                                       const el = event.currentTarget;
@@ -1188,7 +1246,7 @@ function DashboardApp() {
                                   </select>
                                   <button
                                     type="button"
-                                    className="rounded border border-zinc-600 px-2 py-1 text-xs text-zinc-700 dark:text-zinc-300 hover:bg-zinc-200 dark:bg-zinc-800"
+                                    className="rounded border border-[var(--line-strong)] px-2 py-1 text-xs text-[var(--ink-2)] hover:bg-[var(--paper-3)]"
                                     onClick={() =>
                                       void sendMessage({ type: "dashboard:assignTab", tabId: tab.tabId, workspaceId: null }).then(loadData)
                                     }
@@ -1211,12 +1269,12 @@ function DashboardApp() {
           {view === "pinned" ? (
             <div>
               <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
-                <h2 className="text-2xl font-bold tracking-tight">{t("pinnedPageTitle", undefined, language)}</h2>
+                <h2 className="font-flox text-[26px] font-semibold tracking-[-0.02em] leading-tight">{t("pinnedPageTitle", undefined, language)}</h2>
                 <div className="flex flex-wrap items-center gap-2">
-                  <span className="text-sm text-zinc-600 dark:text-zinc-400">{t("pinnedTotal", [String(data.pinnedLinks.length)], language)}</span>
+                  <span className="text-sm text-[var(--muted)]">{t("pinnedTotal", [String(data.pinnedLinks.length)], language)}</span>
                   <button
                     type="button"
-                    className="rounded bg-amber-400 px-3 py-1 text-sm text-zinc-900 font-medium hover:bg-amber-300"
+                    className="rounded-lg bg-[var(--accent)] px-3 py-1 text-sm font-medium text-white hover:opacity-90"
                     onClick={() => openPinnedAddDashboard()}
                   >
                     {t("pinnedAddLink", undefined, language)}
@@ -1228,7 +1286,7 @@ function DashboardApp() {
                   <button
                     key={`open-pins-${ws.id}`}
                     type="button"
-                    className="rounded border border-zinc-300 dark:border-zinc-700 px-2 py-1 text-xs hover:bg-zinc-200 dark:bg-zinc-800"
+                    className="rounded border border-[var(--line)] px-2 py-1 text-xs hover:bg-[var(--paper-3)]"
                     onClick={() => void sendMessage({ type: "dashboard:openPinnedWorkspace", workspaceId: ws.id }).then(loadData)}
                   >
                     {t("pinnedOpenAll", undefined, language)} · {t(ws.name, undefined, language)}
@@ -1236,14 +1294,14 @@ function DashboardApp() {
                 ))}
                 <button
                   type="button"
-                  className="rounded border border-zinc-300 dark:border-zinc-700 px-2 py-1 text-xs hover:bg-zinc-200 dark:bg-zinc-800"
+                  className="rounded border border-[var(--line)] px-2 py-1 text-xs hover:bg-[var(--paper-3)]"
                   onClick={() => void sendMessage({ type: "dashboard:openPinnedWorkspace", workspaceId: null }).then(loadData)}
                 >
                   {t("pinnedOpenAll", undefined, language)} · {t("pinnedGeneralGroup", undefined, language)}
                 </button>
               </div>
               {sortedPinnedDisplay.length === 0 ? (
-                <p className="text-zinc-600 dark:text-zinc-400">{t("pinnedEmpty", undefined, language)}</p>
+                <p className="text-[var(--muted)]">{t("pinnedEmpty", undefined, language)}</p>
               ) : (
                 <SortableContext items={pinnedSortIds} strategy={rectSortingStrategy}>
                   <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
@@ -1271,27 +1329,27 @@ function DashboardApp() {
           {view === "skipUrlList" ? (
             <div className="max-w-4xl space-y-6">
               <div>
-                <h2 className="text-2xl font-bold tracking-tight">{t("dashboardSkipUrlListTitle", undefined, language)}</h2>
-                <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-400">{t("dashboardSkipUrlListIntro", undefined, language)}</p>
+                <h2 className="font-flox text-[26px] font-semibold tracking-[-0.02em] leading-tight">{t("dashboardSkipUrlListTitle", undefined, language)}</h2>
+                <p className="mt-2 text-sm text-[var(--muted)]">{t("dashboardSkipUrlListIntro", undefined, language)}</p>
               </div>
 
-              <div className="overflow-hidden rounded-lg border border-zinc-200 dark:border-zinc-800 bg-zinc-100 dark:bg-zinc-900">
-                <div className="flex flex-wrap items-end gap-3 border-b border-zinc-200 dark:border-zinc-800 p-3">
-                  <label className="flex min-w-[200px] flex-1 flex-col gap-1 text-xs text-zinc-600 dark:text-zinc-400">
+              <div className="overflow-hidden rounded-lg border border-[var(--line)] bg-[var(--paper-2)]">
+                <div className="flex flex-wrap items-end gap-3 border-b border-[var(--line)] p-3">
+                  <label className="flex min-w-[200px] flex-1 flex-col gap-1 text-xs text-[var(--muted)]">
                     <span>{t("dashboardSkipUrlListColumnUrl", undefined, language)}</span>
                     <input
                       value={skipUrlNewPattern}
                       onChange={(event) => setSkipUrlNewPattern(event.target.value)}
                       placeholder={t("dashboardSkipUrlListPatternPlaceholder", undefined, language)}
-                      className="rounded border border-zinc-300 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-950 px-2 py-1.5 text-sm text-zinc-900 dark:text-zinc-100"
+                      className="rounded border border-[var(--line)] bg-[var(--paper)] px-2 py-1.5 text-sm text-[var(--ink)]"
                     />
                   </label>
-                  <label className="flex min-w-[180px] flex-col gap-1 text-xs text-zinc-600 dark:text-zinc-400">
+                  <label className="flex min-w-[180px] flex-col gap-1 text-xs text-[var(--muted)]">
                     <span>{t("dashboardSkipUrlListColumnTask", undefined, language)}</span>
                     <select
                       value={skipUrlNewWorkspaceId}
                       onChange={(event) => setSkipUrlNewWorkspaceId(event.target.value)}
-                      className="rounded border border-zinc-300 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-950 px-2 py-1.5 text-sm text-zinc-900 dark:text-zinc-100"
+                      className="rounded border border-[var(--line)] bg-[var(--paper)] px-2 py-1.5 text-sm text-[var(--ink)]"
                     >
                       <option value="">{t("dashboardSkipUrlListNoWorkspace", undefined, language)}</option>
                       {data.workspaces.map((ws) => (
@@ -1303,18 +1361,18 @@ function DashboardApp() {
                   </label>
                   <button
                     type="button"
-                    className="rounded bg-amber-400 px-3 py-2 text-sm text-zinc-900 font-medium hover:bg-amber-300"
+                    className="rounded-lg bg-[var(--accent)] px-3 py-2 text-sm font-medium text-white hover:opacity-90"
                     onClick={() => void addSkipUrlRuleRow()}
                   >
                     {t("dashboardSkipUrlListAdd", undefined, language)}
                   </button>
                 </div>
                 {data.skipUrlRules.length === 0 ? (
-                  <p className="p-4 text-sm text-zinc-600 dark:text-zinc-500">{t("dashboardSkipUrlListEmpty", undefined, language)}</p>
+                  <p className="p-4 text-sm text-[var(--muted)]">{t("dashboardSkipUrlListEmpty", undefined, language)}</p>
                 ) : (
                   <table className="w-full border-collapse text-sm">
                     <thead>
-                      <tr className="border-b border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-950/50 text-left text-xs uppercase tracking-wide text-zinc-600 dark:text-zinc-500">
+                      <tr className="border-b border-[var(--line)] bg-[var(--paper)]/80 text-left text-xs uppercase tracking-wide text-[var(--muted)]">
                         <th className="px-3 py-2 font-medium">{t("dashboardSkipUrlListColumnUrl", undefined, language)}</th>
                         <th className="px-3 py-2 font-medium">{t("dashboardSkipUrlListColumnTask", undefined, language)}</th>
                         <th className="px-3 py-2 font-medium">{t("dashboardSkipUrlListColumnActions", undefined, language)}</th>
@@ -1322,7 +1380,7 @@ function DashboardApp() {
                     </thead>
                     <tbody>
                       {data.skipUrlRules.map((rule) => (
-                        <tr key={rule.id} className="border-b border-zinc-200/90 dark:border-zinc-800/80">
+                        <tr key={rule.id} className="border-b border-[var(--line)]">
                           <td className="px-3 py-2 align-middle">
                             <input
                               key={`${rule.id}-${rule.urlPattern}`}
@@ -1334,7 +1392,7 @@ function DashboardApp() {
                                 }
                                 void sendMessage({ type: "dashboard:updateSkipUrlRule", id: rule.id, urlPattern: v }).then(loadData);
                               }}
-                              className="w-full min-w-[160px] rounded border border-zinc-300 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-950 px-2 py-1 font-mono text-xs text-zinc-900 dark:text-zinc-100"
+                              className="w-full min-w-[160px] rounded border border-[var(--line)] bg-[var(--paper)] px-2 py-1 font-mono text-xs text-[var(--ink)]"
                             />
                           </td>
                           <td className="px-3 py-2 align-middle">
@@ -1348,7 +1406,7 @@ function DashboardApp() {
                                   workspaceId: v === "" ? null : v
                                 }).then(loadData);
                               }}
-                              className="max-w-[240px] rounded border border-zinc-300 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-950 px-2 py-1 text-xs text-zinc-900 dark:text-zinc-100"
+                              className="max-w-[240px] rounded border border-[var(--line)] bg-[var(--paper)] px-2 py-1 text-xs text-[var(--ink)]"
                             >
                               <option value="">{t("dashboardSkipUrlListNoWorkspace", undefined, language)}</option>
                               {data.workspaces.map((ws) => (
@@ -1361,7 +1419,7 @@ function DashboardApp() {
                           <td className="px-3 py-2 align-middle">
                             <button
                               type="button"
-                              className="rounded border border-zinc-600 px-2 py-1 text-xs text-zinc-700 dark:text-zinc-300 hover:bg-zinc-200 dark:bg-zinc-800"
+                              className="rounded border border-[var(--line-strong)] px-2 py-1 text-xs text-[var(--ink-2)] hover:bg-[var(--paper-3)]"
                               onClick={() => {
                                 if (window.confirm(t("pinnedDelete", undefined, language))) {
                                   void sendMessage({ type: "dashboard:removeSkipUrlRule", id: rule.id }).then(loadData);
@@ -1378,8 +1436,8 @@ function DashboardApp() {
                 )}
               </div>
 
-              <p className="text-xs text-zinc-600 dark:text-zinc-500">{t("dashboardSkipUrlListSettingsHint", undefined, language)}</p>
-              <button type="button" className="text-xs text-amber-400 hover:text-amber-400" onClick={() => setView("settings")}>
+              <p className="text-xs text-[var(--muted)]">{t("dashboardSkipUrlListSettingsHint", undefined, language)}</p>
+              <button type="button" className="text-xs text-[var(--accent)] hover:text-[var(--accent)]" onClick={() => setView("settings")}>
                 {t("dashboardTaskGroupsOpenSettings", undefined, language)}
               </button>
             </div>
@@ -1389,39 +1447,39 @@ function DashboardApp() {
             <div className="max-w-4xl space-y-6">
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div>
-                  <h2 className="text-2xl font-bold tracking-tight">{t("dashboardNavTaskGroups", undefined, language)}</h2>
-                  <p className="mt-2 max-w-2xl text-sm text-zinc-600 dark:text-zinc-400">{t("dashboardTaskGroupsIntro", undefined, language)}</p>
+                  <h2 className="font-flox text-[26px] font-semibold tracking-[-0.02em] leading-tight">{t("dashboardNavTaskGroups", undefined, language)}</h2>
+                  <p className="mt-2 max-w-2xl text-sm text-[var(--muted)]">{t("dashboardTaskGroupsIntro", undefined, language)}</p>
                 </div>
                 <button
                   type="button"
                   onClick={() => void openNewWorkspace()}
-                  className="shrink-0 rounded bg-amber-400 px-3 py-1.5 text-sm text-zinc-900 font-medium hover:bg-amber-300"
+                  className="shrink-0 rounded-lg bg-[var(--accent)] px-3 py-1.5 text-sm font-medium text-white hover:opacity-90"
                 >
                   {t("dashboardNewTaskButton", undefined, language)}
                 </button>
               </div>
 
-              <div className="rounded-lg border border-zinc-300 dark:border-zinc-700/60 bg-zinc-100 dark:bg-zinc-900/60 p-3 text-sm text-zinc-700 dark:text-zinc-300">
+              <div className="rounded-lg border border-[var(--line)] bg-[var(--paper-2)]/60 p-3 text-sm text-[var(--ink-2)]">
                 <p>{t("dashboardTaskGroupsPromptNavHint", undefined, language)}</p>
                 <button
                   type="button"
-                  className="mt-2 text-xs font-medium text-amber-400 hover:text-amber-800 dark:text-amber-300"
+                  className="mt-2 text-xs font-medium text-[var(--accent)] hover:underline"
                   onClick={() => setView("skipUrlList")}
                 >
                   {t("dashboardNavAssignPromptSkip", undefined, language)} →
                 </button>
               </div>
 
-              <div className="rounded-lg border border-zinc-200/70 dark:border-zinc-800/60 bg-zinc-100/90 dark:bg-zinc-900/50 p-4">
-                <h3 className="text-sm font-semibold text-zinc-800 dark:text-zinc-200">{t("workspaceListTitle", undefined, language)}</h3>
+              <div className="rounded-lg border border-[var(--line)] bg-[var(--paper-2)] p-4">
+                <h3 className="text-sm font-semibold text-[var(--ink)]">{t("workspaceListTitle", undefined, language)}</h3>
                 {data.workspaces.length === 0 ? (
-                  <p className="mt-3 text-sm text-zinc-600 dark:text-zinc-400">{t("dashboardNoWorkspace", undefined, language)}</p>
+                  <p className="mt-3 text-sm text-[var(--muted)]">{t("dashboardNoWorkspace", undefined, language)}</p>
                 ) : (
                   <div className="mt-4 space-y-3">
                     {data.workspaces.map((workspace) => (
                       <div
                         key={`tg-${workspace.id}`}
-                        className="flex flex-col gap-3 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-950/50 p-3 sm:flex-row sm:items-center sm:justify-between"
+                        className="flex flex-col gap-3 rounded-lg border border-[var(--line)] bg-[var(--paper)]/80 p-3 sm:flex-row sm:items-center sm:justify-between"
                       >
                         <button
                           type="button"
@@ -1429,16 +1487,16 @@ function DashboardApp() {
                             setActiveWorkspaceId(workspace.id);
                             setView("workspace");
                           }}
-                          className="flex min-w-0 items-center gap-2 text-left hover:text-amber-400"
+                          className="flex min-w-0 items-center gap-2 text-left hover:text-[var(--accent)]"
                         >
                           <span className="h-3 w-3 shrink-0 rounded-full" style={{ backgroundColor: workspace.color }} />
-                          <span className="truncate font-medium text-zinc-900 dark:text-zinc-100">{t(workspace.name, undefined, language)}</span>
-                          <span className="shrink-0 text-xs text-zinc-600 dark:text-zinc-500">{workspace.tabCount}</span>
+                          <span className="truncate font-medium text-[var(--ink)]">{t(workspace.name, undefined, language)}</span>
+                          <span className="shrink-0 text-xs text-[var(--muted)]">{workspace.tabCount}</span>
                         </button>
                         <div className="flex flex-wrap items-center gap-2">
                           <button
                             type="button"
-                            className="rounded border border-zinc-300 dark:border-zinc-700 px-2 py-1 text-xs hover:bg-zinc-200 dark:bg-zinc-800"
+                            className="rounded border border-[var(--line)] px-2 py-1 text-xs hover:bg-[var(--paper-3)]"
                             onClick={() => openEditWorkspace(workspace)}
                           >
                             {t("popupEditTaskTitle", undefined, language)}
@@ -1452,7 +1510,7 @@ function DashboardApp() {
                             {loadingKey === `del-ws-${workspace.id}` ? t("loading", undefined, language) : t("deleteWorkspace", undefined, language)}
                           </button>
                           <select
-                            className="max-w-[220px] rounded border border-zinc-300 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-950 px-2 py-1 text-xs"
+                            className="max-w-[220px] rounded border border-[var(--line)] bg-[var(--paper)] px-2 py-1 text-xs"
                             defaultValue=""
                             key={`reassign-bulk-${workspace.id}-${workspace.tabCount}`}
                             disabled={Boolean(loadingKey?.startsWith("reassign-all-"))}
@@ -1492,18 +1550,18 @@ function DashboardApp() {
               <div className="mb-4 flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <span className="h-3 w-3 rounded-full" style={{ backgroundColor: selectedWorkspace.color }} />
-                  <h2 className="text-2xl font-bold tracking-tight">{t(selectedWorkspace.name, undefined, language)}</h2>
-                  <span className="text-sm text-zinc-600 dark:text-zinc-400">{selectedWorkspace.tabCount}</span>
+                  <h2 className="font-flox text-[26px] font-semibold tracking-[-0.02em] leading-tight">{t(selectedWorkspace.name, undefined, language)}</h2>
+                  <span className="text-sm text-[var(--muted)]">{selectedWorkspace.tabCount}</span>
                 </div>
                 <div className="flex flex-wrap gap-2">
                   <button
                     type="button"
                     onClick={() => openEditWorkspace(selectedWorkspace)}
-                    className="rounded border border-zinc-300 dark:border-zinc-700 px-2 py-1 text-xs hover:bg-zinc-200 dark:bg-zinc-800"
+                    className="rounded border border-[var(--line)] px-2 py-1 text-xs hover:bg-[var(--paper-3)]"
                   >
                     {t("popupEditTaskTitle", undefined, language)}
                   </button>
-                  <button className="tooltip-trigger rounded border border-zinc-300 dark:border-zinc-700 px-2 py-1 text-xs" data-tooltip={t("tooltipExpandList", undefined, language)}>{t("popupExpand", undefined, language)}</button>
+                  <button className="tooltip-trigger rounded border border-[var(--line)] px-2 py-1 text-xs" data-tooltip={t("tooltipExpandList", undefined, language)}>{t("popupExpand", undefined, language)}</button>
                   <button
                     type="button"
                     onClick={() => void (async () => {
@@ -1512,7 +1570,7 @@ function DashboardApp() {
                       await loadData();
                       setLoadingKey(null);
                     })()}
-                    className="rounded border border-zinc-300 dark:border-zinc-700 px-2 py-1 text-xs"
+                    className="rounded border border-[var(--line)] px-2 py-1 text-xs"
                   >
                     {loadingKey === `stash-${selectedWorkspace.id}` ? t("loading", undefined, language) : t("popupStash", undefined, language)}
                   </button>
@@ -1525,18 +1583,18 @@ function DashboardApp() {
                       await loadData();
                       setLoadingKey(null);
                     })()}
-                    className="rounded border border-zinc-300 dark:border-zinc-700 px-2 py-1 text-xs"
+                    className="rounded border border-[var(--line)] px-2 py-1 text-xs"
                   >
                     {loadingKey === `close-${selectedWorkspace.id}` ? t("loading", undefined, language) : t("popupCloseAll", undefined, language)}
                   </button>
                 </div>
               </div>
               {selectedWorkspace.pinnedStripTotal > 0 ? (
-                <div className="mb-4 border-t border-zinc-200 dark:border-zinc-800 pt-4">
-                  <div className="mb-2 flex items-center justify-between text-xs uppercase tracking-wide text-zinc-600 dark:text-zinc-500">
+                <div className="mb-4 border-t border-[var(--line)] pt-4">
+                  <div className="mb-2 flex items-center justify-between text-xs uppercase tracking-wide text-[var(--muted)]">
                     <span>📌 {t("popupTabPinned", undefined, language)}</span>
                     {selectedWorkspace.pinnedStripTotal > 5 ? (
-                      <button type="button" className="normal-case text-amber-400 hover:text-amber-400" onClick={() => setView("pinned")}>
+                      <button type="button" className="normal-case text-[var(--accent)] hover:text-[var(--accent)]" onClick={() => setView("pinned")}>
                         {t("pinnedViewAll", undefined, language)}
                       </button>
                     ) : null}
@@ -1547,7 +1605,7 @@ function DashboardApp() {
                         key={p.id}
                         type="button"
                         onClick={() => openPinnedOrFocusTab(p.url)}
-                        className="flex max-w-[200px] items-center gap-2 rounded border border-zinc-200 dark:border-zinc-800 bg-zinc-100/95 dark:bg-zinc-900/80 px-2 py-1 text-left text-xs hover:border-zinc-600"
+                        className="flex max-w-[200px] items-center gap-2 rounded border border-[var(--line)] bg-[var(--paper-2)] px-2 py-1 text-left text-xs hover:border-[var(--line-strong)]"
                       >
                         <img
                           src={p.favIconUrl || "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw=="}
@@ -1590,8 +1648,8 @@ function DashboardApp() {
               ) : (
                 <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
                   {selectedWorkspace.tabs.length === 0 ? (
-                    <div className="rounded-lg border border-zinc-200 dark:border-zinc-800 bg-zinc-100 dark:bg-zinc-900 p-6 text-center text-zinc-700 dark:text-zinc-300">
-                      <svg viewBox="0 0 120 80" className="mx-auto h-20 w-20 text-zinc-600 dark:text-zinc-500"><rect x="20" y="28" width="80" height="36" rx="6" fill="none" stroke="currentColor" strokeWidth="2"/><path d="M20 38h80" stroke="currentColor" strokeWidth="2"/></svg>
+                    <div className="rounded-lg border border-[var(--line)] bg-[var(--paper-2)] p-6 text-center text-[var(--ink-2)]">
+                      <svg viewBox="0 0 120 80" className="mx-auto h-20 w-20 text-[var(--muted)]"><rect x="20" y="28" width="80" height="36" rx="6" fill="none" stroke="currentColor" strokeWidth="2"/><path d="M20 38h80" stroke="currentColor" strokeWidth="2"/></svg>
                       <p className="mt-2 text-sm">{t("dashboardWorkspaceEmpty", undefined, language)}</p>
                     </div>
                   ) : selectedWorkspace.tabs.map((tab) => (
@@ -1617,28 +1675,28 @@ function DashboardApp() {
           ) : null}
 
           {view === "unassigned" ? (
-            <div ref={viewDroppable.setNodeRef} className={`rounded-lg border p-4 ${viewDroppable.isOver ? "border-amber-400/60 bg-amber-950/10" : "border-zinc-200 dark:border-zinc-800 bg-zinc-100 dark:bg-zinc-900/60"}`}>
-              <h2 className="text-2xl font-bold tracking-tight">{t("dashboardNavUnassigned", undefined, language)}</h2>
+            <div ref={viewDroppable.setNodeRef} className={`rounded-lg border p-4 ${viewDroppable.isOver ? "border-[var(--accent)]/50 bg-[var(--accent-soft)]" : "border-[var(--line)] bg-[var(--paper-2)]/60"}`}>
+              <h2 className="font-flox text-[26px] font-semibold tracking-[-0.02em] leading-tight">{t("dashboardNavUnassigned", undefined, language)}</h2>
               {data.unassignedTabs.length === 0 ? (
-                <p className="mt-3 text-zinc-700 dark:text-zinc-300">{t("dashboardAllClassified", undefined, language)}</p>
+                <p className="mt-3 text-[var(--ink-2)]">{t("dashboardAllClassified", undefined, language)}</p>
               ) : (
                 <div className="mt-4 space-y-2">
                   {data.unassignedTabs.map((tab) => (
-                    <div key={`ua-${tab.tabId}`} className="flex items-center gap-2 rounded border border-zinc-200 dark:border-zinc-800 bg-zinc-100 dark:bg-zinc-900 p-2">
+                    <div key={`ua-${tab.tabId}`} className="flex items-center gap-2 rounded border border-[var(--line)] bg-[var(--paper-2)] p-2">
                       <button
                         type="button"
                         onClick={() => focusLiveTab(tab.tabId)}
                         title={t("dashboardSwitchToTab", undefined, language)}
-                        className="flex min-w-0 flex-1 items-start gap-2 rounded text-left outline-none ring-amber-400/0 hover:bg-zinc-200 dark:bg-zinc-800/80 focus-visible:ring-2"
+                        className="flex min-w-0 flex-1 items-start gap-2 rounded text-left outline-none ring-[var(--accent)]/0 hover:bg-[var(--paper-3)]/80 focus-visible:ring-[var(--accent)]"
                       >
                         <img src={tab.favIconUrl || "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw=="} alt="" className="mt-0.5 h-4 w-4 shrink-0 rounded-sm" />
                         <span className="min-w-0">
-                          <span className="block truncate text-sm text-zinc-900 dark:text-zinc-100">{tab.title || t("popupUnknownTitle", undefined, language)}</span>
-                          <span className="block truncate text-xs text-amber-400/90">{tab.url || tab.domain}</span>
+                          <span className="block truncate text-sm text-[var(--ink)]">{tab.title || t("popupUnknownTitle", undefined, language)}</span>
+                          <span className="block truncate text-xs text-[var(--accent)]/90">{tab.url || tab.domain}</span>
                         </span>
                       </button>
                       <select
-                        className="rounded border border-zinc-300 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-950 px-2 py-1 text-xs"
+                        className="rounded border border-[var(--line)] bg-[var(--paper)] px-2 py-1 text-xs"
                         defaultValue=""
                         onChange={(event) => {
                           const el = event.currentTarget;
@@ -1669,47 +1727,47 @@ function DashboardApp() {
 
           {view === "stashed" ? (
             <div>
-              <h2 className="text-2xl font-bold tracking-tight">{t("dashboardNavStashed", undefined, language)}</h2>
+              <h2 className="font-flox text-[26px] font-semibold tracking-[-0.02em] leading-tight">{t("dashboardNavStashed", undefined, language)}</h2>
               <div className="mt-4 space-y-3">
                 {data.workspaces.filter((workspace) => workspace.stashedCount > 0).length === 0 ? (
-                  <p className="text-zinc-700 dark:text-zinc-300">{t("dashboardStashedEmpty", undefined, language)}</p>
+                  <p className="text-[var(--ink-2)]">{t("dashboardStashedEmpty", undefined, language)}</p>
                 ) : data.workspaces.filter((workspace) => workspace.stashedCount > 0).map((workspace) => (
-                  <div key={`stash-${workspace.id}`} className="rounded border border-zinc-200 dark:border-zinc-800 bg-zinc-100 dark:bg-zinc-900 p-3">
+                  <div key={`stash-${workspace.id}`} className="rounded border border-[var(--line)] bg-[var(--paper-2)] p-3">
                     <div className="flex items-center justify-between">
                       <p>{t(workspace.name, undefined, language)} ({workspace.stashedCount})</p>
                       <div className="flex gap-2">
                         <button
                           type="button"
                           onClick={() => void sendMessage({ type: "dashboard:restoreWorkspace", workspaceId: workspace.id }).then(loadData)}
-                          className="rounded border border-zinc-300 dark:border-zinc-700 px-2 py-1 text-xs"
+                          className="rounded border border-[var(--line)] px-2 py-1 text-xs"
                         >
                           {t("popupRestore", undefined, language)}
                         </button>
                         <button
                           type="button"
                           onClick={() => setExpandedStashed((current) => current.includes(workspace.id) ? current.filter((id) => id !== workspace.id) : [...current, workspace.id])}
-                          className="rounded border border-zinc-300 dark:border-zinc-700 px-2 py-1 text-xs"
+                          className="rounded border border-[var(--line)] px-2 py-1 text-xs"
                         >
                           {expandedStashed.includes(workspace.id) ? t("popupCollapse", undefined, language) : t("popupExpand", undefined, language)}
                         </button>
                       </div>
                     </div>
                     {workspace.stashedAt ? (
-                      <p className="mt-2 text-xs text-zinc-600 dark:text-zinc-400">{formatStashedAt(workspace.stashedAt, language)}</p>
+                      <p className="mt-2 text-xs text-[var(--muted)]">{formatStashedAt(workspace.stashedAt, language)}</p>
                     ) : null}
                     {expandedStashed.includes(workspace.id) ? (
                       <div className="mt-3 space-y-2">
                         {workspace.savedTabs.map((tab) => (
-                          <div key={`${workspace.id}-${tab.url}`} className="flex items-center gap-2 rounded border border-zinc-200 dark:border-zinc-800 p-2">
+                          <div key={`${workspace.id}-${tab.url}`} className="flex items-center gap-2 rounded border border-[var(--line)] p-2">
                             <img src={tab.favIconUrl || "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw=="} alt="" className="h-4 w-4 rounded-sm" />
                             <div className="min-w-0 flex-1">
                               <p className="truncate text-sm">{tab.title}</p>
-                              <p className="truncate text-xs text-zinc-600 dark:text-zinc-400">{tab.domain}</p>
+                              <p className="truncate text-xs text-[var(--muted)]">{tab.domain}</p>
                             </div>
                             <button
                               type="button"
                               onClick={() => void sendMessage({ type: "dashboard:restoreSavedTab", workspaceId: workspace.id, url: tab.url }).then(loadData)}
-                              className="rounded border border-zinc-300 dark:border-zinc-700 px-2 py-1 text-xs"
+                              className="rounded border border-[var(--line)] px-2 py-1 text-xs"
                             >
                               {t("popupRestore", undefined, language)}
                             </button>
@@ -1725,20 +1783,20 @@ function DashboardApp() {
 
           {view === "stats" ? (
             <div className="relative min-h-[320px]">
-              <h2 className="text-2xl font-bold tracking-tight">{t("dashboardNavStats", undefined, language)}</h2>
+              <h2 className="font-flox text-[26px] font-semibold tracking-[-0.02em] leading-tight">{t("dashboardNavStats", undefined, language)}</h2>
               <div
-                className={`relative mt-4 rounded border border-zinc-200 dark:border-zinc-800 bg-zinc-100 dark:bg-zinc-900/60 p-4 ${
+                className={`relative mt-4 rounded border border-[var(--line)] bg-[var(--paper-2)]/60 p-4 ${
                   MONETIZATION_ENABLED && !hasStatisticsAccess ? "pointer-events-none select-none" : ""
                 }`}
               >
-                <div className="h-44 rounded border border-zinc-200 dark:border-zinc-800 p-2">
+                <div className="h-44 rounded border border-[var(--line)] p-2">
                   <div className="flex h-full items-end gap-2">
                     {data.weekly.map((day) => {
                       const total = day.counts.reduce((sum, item) => sum + item.value, 0);
                       return (
                         <div key={day.day} className="flex flex-1 flex-col items-center justify-end gap-1">
-                          <div className="w-full rounded bg-amber-400/60" style={{ height: `${Math.max(8, total * 10)}px` }} />
-                          <span className="text-[10px] text-zinc-600 dark:text-zinc-400">{day.day}</span>
+                          <div className="w-full rounded bg-[var(--accent)]/60" style={{ height: `${Math.max(8, total * 10)}px` }} />
+                          <span className="text-[10px] text-[var(--muted)]">{day.day}</span>
                         </div>
                       );
                     })}
@@ -1749,12 +1807,12 @@ function DashboardApp() {
                     <div key={`rank-${item.workspaceId}`} className="flex items-center gap-2">
                       <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: item.color }} />
                       <span className="flex-1 text-sm">{t(item.name, undefined, language)}</span>
-                      <span className="text-xs text-zinc-600 dark:text-zinc-400">{item.value} min</span>
+                      <span className="text-xs text-[var(--muted)]">{item.value} min</span>
                     </div>
                   ))}
                 </div>
                 {MONETIZATION_ENABLED && !hasStatisticsAccess ? (
-                  <div className="absolute inset-0 z-10 flex items-start justify-center rounded-lg bg-zinc-50 dark:bg-zinc-950/55 pt-16 backdrop-blur-sm">
+                  <div className="absolute inset-0 z-10 flex items-start justify-center rounded-lg bg-[var(--paper)]/55 pt-16 backdrop-blur-sm">
                     <div className="mx-4 w-full max-w-md">
                       <UpgradePrompt feature="statistics" language={language} />
                     </div>
@@ -1766,12 +1824,12 @@ function DashboardApp() {
 
           {view === "pro" ? (
             <div className="max-w-lg space-y-4">
-              <h2 className="text-2xl font-bold tracking-tight">{t("dashboardProPageTitle", undefined, language)}</h2>
-              <p className="text-sm text-zinc-600 dark:text-zinc-400">{t("dashboardComingSoon", undefined, language)}</p>
+              <h2 className="font-flox text-[26px] font-semibold tracking-[-0.02em] leading-tight">{t("dashboardProPageTitle", undefined, language)}</h2>
+              <p className="text-sm text-[var(--muted)]">{t("dashboardComingSoon", undefined, language)}</p>
               {MONETIZATION_ENABLED ? (
                 <button
                   type="button"
-                  className="rounded-lg bg-amber-400 px-4 py-2 text-sm font-medium text-zinc-900 hover:bg-amber-300"
+                  className="rounded-lg bg-[var(--accent)] px-4 py-2 text-sm font-medium text-white hover:opacity-90"
                   onClick={() => void chrome.tabs.create({ url: t("proLearnMoreUrl", undefined, language) })}
                 >
                   {t("learnFloxPro", undefined, language)}
@@ -1782,15 +1840,15 @@ function DashboardApp() {
 
           {view === "settings" ? (
             <div className="space-y-4">
-              <h2 className="text-2xl font-bold tracking-tight">{t("settingsTitle", undefined, language)}</h2>
-              <div className="rounded border border-zinc-200 dark:border-zinc-800 bg-zinc-100 dark:bg-zinc-900 p-4">
-                <label className="text-xs text-zinc-600 dark:text-zinc-400">{t("settingsIdleThreshold", undefined, language)}</label>
+              <h2 className="font-flox text-[26px] font-semibold tracking-[-0.02em] leading-tight">{t("settingsTitle", undefined, language)}</h2>
+              <div className="rounded border border-[var(--line)] bg-[var(--paper-2)] p-4">
+                <label className="text-xs text-[var(--muted)]">{t("settingsIdleThreshold", undefined, language)}</label>
                 <select
                   value={settings.idleThresholdMinutes}
                   onChange={(event) =>
                     void saveSettings({ ...settings, idleThresholdMinutes: Number(event.target.value) })
                   }
-                  className="mt-1 w-full rounded border border-zinc-300 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-950 px-2 py-1 text-sm"
+                  className="mt-1 w-full rounded border border-[var(--line)] bg-[var(--paper)] px-2 py-1 text-sm"
                 >
                   <option value={30}>30m</option>
                   <option value={60}>1h</option>
@@ -1799,17 +1857,17 @@ function DashboardApp() {
                   <option value={0}>{t("settingsDisabled", undefined, language)}</option>
                 </select>
               </div>
-              <div className="rounded border border-zinc-200 dark:border-zinc-800 bg-zinc-100 dark:bg-zinc-900 p-4">
-                <label className="text-xs text-zinc-600 dark:text-zinc-400">{t("settingsTabWarningThreshold", undefined, language)}</label>
+              <div className="rounded border border-[var(--line)] bg-[var(--paper-2)] p-4">
+                <label className="text-xs text-[var(--muted)]">{t("settingsTabWarningThreshold", undefined, language)}</label>
                 <input
                   type="number"
                   value={settings.tabWarningThreshold}
                   onChange={(event) => setSettings((current) => ({ ...current, tabWarningThreshold: Number(event.target.value) }))}
                   onBlur={() => void saveSettings(settings)}
-                  className="mt-1 w-full rounded border border-zinc-300 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-950 px-2 py-1 text-sm"
+                  className="mt-1 w-full rounded border border-[var(--line)] bg-[var(--paper)] px-2 py-1 text-sm"
                 />
               </div>
-              <div className="rounded border border-zinc-200 dark:border-zinc-800 bg-zinc-100 dark:bg-zinc-900 p-4">
+              <div className="rounded border border-[var(--line)] bg-[var(--paper-2)] p-4">
                 <label className="flex items-center gap-2 text-sm">
                   <input
                     type="checkbox"
@@ -1819,7 +1877,7 @@ function DashboardApp() {
                   {t("settingsAutoGroup", undefined, language)}
                 </label>
               </div>
-              <div className="rounded border border-zinc-200 dark:border-zinc-800 bg-zinc-100 dark:bg-zinc-900 p-4">
+              <div className="rounded border border-[var(--line)] bg-[var(--paper-2)] p-4">
                 <label className="flex items-center gap-2 text-sm">
                   <input
                     type="checkbox"
@@ -1829,7 +1887,7 @@ function DashboardApp() {
                   {t("settingsAutoMoveAssignedTabs", undefined, language)}
                 </label>
               </div>
-              <div className="rounded border border-zinc-200 dark:border-zinc-800 bg-zinc-100 dark:bg-zinc-900 p-4">
+              <div className="rounded border border-[var(--line)] bg-[var(--paper-2)] p-4">
                 <label className="flex items-center gap-2 text-sm">
                   <input
                     type="checkbox"
@@ -1841,21 +1899,21 @@ function DashboardApp() {
                   {t("settingsAutoAssignPrompt", undefined, language)}
                 </label>
               </div>
-              <div className="rounded border border-zinc-200 dark:border-zinc-800 bg-zinc-100 dark:bg-zinc-900 p-4">
-                <p className="text-sm text-zinc-800 dark:text-zinc-200">{t("settingsIgnoredDomains", undefined, language)}</p>
+              <div className="rounded border border-[var(--line)] bg-[var(--paper-2)] p-4">
+                <p className="text-sm text-[var(--ink)]">{t("settingsIgnoredDomains", undefined, language)}</p>
                 {ignoredDomains.length === 0 ? (
-                  <p className="mt-2 text-xs text-zinc-600 dark:text-zinc-400">{t("settingsNoIgnoredDomains", undefined, language)}</p>
+                  <p className="mt-2 text-xs text-[var(--muted)]">{t("settingsNoIgnoredDomains", undefined, language)}</p>
                 ) : (
                   <div className="mt-2 space-y-2">
                     {ignoredDomains.map((domain) => (
-                      <div key={domain} className="flex items-center justify-between rounded border border-zinc-200 dark:border-zinc-800 px-2 py-1 text-xs">
+                      <div key={domain} className="flex items-center justify-between rounded border border-[var(--line)] px-2 py-1 text-xs">
                         <span>{domain}</span>
                         <button
                           type="button"
                           onClick={() =>
                             void sendMessage({ type: "dashboard:removeIgnoredDomain", domain }).then(reloadIgnoredDomains)
                           }
-                          className="rounded border border-zinc-300 dark:border-zinc-700 px-2 py-0.5"
+                          className="rounded border border-[var(--line)] px-2 py-0.5"
                         >
                           {t("deleteWorkspace", undefined, language)}
                         </button>
@@ -1864,8 +1922,8 @@ function DashboardApp() {
                   </div>
                 )}
               </div>
-              <div className="rounded border border-zinc-200 dark:border-zinc-800 bg-zinc-100 dark:bg-zinc-900 p-4">
-                <button type="button" onClick={exportConfig} className="rounded border border-zinc-300 dark:border-zinc-700 px-3 py-1 text-sm">
+              <div className="rounded border border-[var(--line)] bg-[var(--paper-2)] p-4">
+                <button type="button" onClick={exportConfig} className="rounded border border-[var(--line)] px-3 py-1 text-sm">
                   {t("settingsExport", undefined, language)}
                 </button>
                 <div className="mt-3">
@@ -1881,9 +1939,9 @@ function DashboardApp() {
                     }}
                   />
                   {importPreview ? (
-                    <div className="mt-2 rounded border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-950 p-2 text-xs text-zinc-700 dark:text-zinc-300">
+                    <div className="mt-2 rounded border border-[var(--line)] bg-[var(--paper)] p-2 text-xs text-[var(--ink-2)]">
                       <pre className="max-h-32 overflow-auto whitespace-pre-wrap">{importPreview}</pre>
-                      <button type="button" onClick={() => void importConfig()} className="mt-2 rounded border border-zinc-300 dark:border-zinc-700 px-2 py-1">
+                      <button type="button" onClick={() => void importConfig()} className="mt-2 rounded border border-[var(--line)] px-2 py-1">
                         {t("settingsImport", undefined, language)}
                       </button>
                     </div>
@@ -1895,7 +1953,7 @@ function DashboardApp() {
                   {t("settingsResetAll", undefined, language)}
                 </button>
               </div>
-              <div className="rounded border border-zinc-200 dark:border-zinc-800 bg-zinc-100 dark:bg-zinc-900 p-4 text-sm text-zinc-700 dark:text-zinc-300">
+              <div className="rounded border border-[var(--line)] bg-[var(--paper-2)] p-4 text-sm text-[var(--ink-2)]">
                 {t("settingsPrivacyNote", undefined, language)}
               </div>
               <button
@@ -1913,21 +1971,21 @@ function DashboardApp() {
           ) : null}
         </section>
 
-        <DragOverlay>{draggingWorkspaceId ? <div className="rounded bg-zinc-700 px-2 py-1 text-xs">{draggingWorkspaceId}</div> : null}</DragOverlay>
+        <DragOverlay>{draggingWorkspaceId ? <div className="rounded bg-[var(--ink)] px-2 py-1 text-xs text-[var(--paper)]">{draggingWorkspaceId}</div> : null}</DragOverlay>
         {showOnboarding ? (
-          <div className="fixed inset-0 z-30 flex items-center justify-center bg-zinc-50 dark:bg-zinc-950/80 p-6">
-            <div className="w-full max-w-2xl rounded-xl border border-zinc-300 dark:border-zinc-700 bg-zinc-100 dark:bg-zinc-900 p-6">
-              <p className="mb-3 text-xs text-zinc-600 dark:text-zinc-400">{t("onboardingStepIndicator", [String(onboardingStep), "4"], language)}</p>
+          <div className="fixed inset-0 z-30 flex items-center justify-center bg-[var(--paper)]/80 p-6">
+            <div className="w-full max-w-2xl rounded-xl border border-[var(--line)] bg-[var(--paper-2)] p-6">
+              <p className="mb-3 text-xs text-[var(--muted)]">{t("onboardingStepIndicator", [String(onboardingStep), "4"], language)}</p>
               {onboardingStep === 1 ? (
                 <div>
-                  <h3 className="text-2xl font-bold tracking-tight">{t("onboardingWelcomeTitle", undefined, language)}</h3>
-                  <p className="mt-2 text-zinc-700 dark:text-zinc-300">{t("onboardingWelcomeDesc", undefined, language)}</p>
+                  <h3 className="font-flox text-[26px] font-semibold tracking-[-0.02em] leading-tight">{t("onboardingWelcomeTitle", undefined, language)}</h3>
+                  <p className="mt-2 text-[var(--ink-2)]">{t("onboardingWelcomeDesc", undefined, language)}</p>
                   <div
-                    className="mt-6 flex justify-center rounded-xl border border-zinc-200 dark:border-zinc-800 bg-gradient-to-b from-zinc-950 via-zinc-900/80 to-zinc-950 px-4 py-6"
+                    className="mt-6 flex justify-center rounded-xl border border-[var(--line)] bg-gradient-to-b from-[var(--paper)] via-[var(--paper-2)]/80 to-[var(--paper)] px-4 py-6"
                     role="img"
                     aria-label={t("onboardingWelcomeDesc", undefined, language)}
                   >
-                    <svg viewBox="0 0 360 200" className="h-44 w-full max-w-md text-zinc-600 dark:text-zinc-500" aria-hidden="true">
+                    <svg viewBox="0 0 360 200" className="h-44 w-full max-w-md text-[var(--muted)]" aria-hidden="true">
                       <defs>
                         <linearGradient id="onb-win" x1="0%" y1="0%" x2="0%" y2="100%">
                           <stop offset="0%" stopColor="#1e293b" />
@@ -1962,10 +2020,10 @@ function DashboardApp() {
               ) : null}
               {onboardingStep === 2 ? (
                 <div>
-                  <h3 className="text-2xl font-bold tracking-tight">{t("onboardingTemplatesTitle", undefined, language)}</h3>
+                  <h3 className="font-flox text-[26px] font-semibold tracking-[-0.02em] leading-tight">{t("onboardingTemplatesTitle", undefined, language)}</h3>
                   <div className="mt-3 grid grid-cols-1 gap-2 md:grid-cols-2">
                     {workspaceTemplates.map((template) => (
-                      <label key={template.id} className="flex items-center gap-2 rounded border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-950 p-2 text-sm">
+                      <label key={template.id} className="flex items-center gap-2 rounded border border-[var(--line)] bg-[var(--paper)] p-2 text-sm">
                         <input
                           type="checkbox"
                           checked={onboardingTemplates.includes(template.id)}
@@ -1979,13 +2037,13 @@ function DashboardApp() {
                       </label>
                     ))}
                   </div>
-                  <div className="mt-4 rounded border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-950 p-3">
-                    <p className="text-sm text-zinc-700 dark:text-zinc-300">{t("onboardingCustomWorkspace", undefined, language)}</p>
+                  <div className="mt-4 rounded border border-[var(--line)] bg-[var(--paper)] p-3">
+                    <p className="text-sm text-[var(--ink-2)]">{t("onboardingCustomWorkspace", undefined, language)}</p>
                     <div className="mt-2 flex gap-2">
                       <input
                         value={onboardingCustomName}
                         onChange={(event) => setOnboardingCustomName(event.target.value)}
-                        className="flex-1 rounded border border-zinc-300 dark:border-zinc-700 bg-zinc-100 dark:bg-zinc-900 px-2 py-1 text-sm"
+                        className="flex-1 rounded border border-[var(--line)] bg-[var(--paper-2)] px-2 py-1 text-sm"
                         placeholder={t("popupTaskNameLabel", undefined, language)}
                       />
                       <button
@@ -1996,7 +2054,7 @@ function DashboardApp() {
                           setOnboardingCustomWorkspaces((current) => [...current, value]);
                           setOnboardingCustomName("");
                         }}
-                        className="rounded border border-zinc-300 dark:border-zinc-700 px-3 py-1 text-sm"
+                        className="rounded border border-[var(--line)] px-3 py-1 text-sm"
                       >
                         {t("onboardingAddCustomWorkspace", undefined, language)}
                       </button>
@@ -2004,7 +2062,7 @@ function DashboardApp() {
                     {onboardingCustomWorkspaces.length > 0 ? (
                       <div className="mt-2 flex flex-wrap gap-2">
                         {onboardingCustomWorkspaces.map((name) => (
-                          <span key={name} className="inline-flex items-center gap-1 rounded bg-zinc-200 dark:bg-zinc-800 px-2 py-1 text-xs">
+                          <span key={name} className="inline-flex items-center gap-1 rounded bg-[var(--paper-3)] px-2 py-1 text-xs">
                             {name}
                             <button
                               type="button"
@@ -2023,17 +2081,17 @@ function DashboardApp() {
               ) : null}
               {onboardingStep === 3 ? (
                 <div>
-                  <h3 className="text-2xl font-bold tracking-tight">{t("onboardingAssignTitle", undefined, language)}</h3>
+                  <h3 className="font-flox text-[26px] font-semibold tracking-[-0.02em] leading-tight">{t("onboardingAssignTitle", undefined, language)}</h3>
                   <div className="mt-3 max-h-64 space-y-2 overflow-y-auto">
                     {data.unassignedTabs.map((tab) => (
-                      <div key={`onb-tab-${tab.tabId}`} className="flex items-center gap-2 rounded border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-950 p-2 text-sm">
+                      <div key={`onb-tab-${tab.tabId}`} className="flex items-center gap-2 rounded border border-[var(--line)] bg-[var(--paper)] p-2 text-sm">
                         <span className="min-w-0 flex-1 truncate">{tab.title || tab.domain}</span>
                         <select
                           value={batchAssignment[tab.tabId] ?? ""}
                           onChange={(event) =>
                             setBatchAssignment((current) => ({ ...current, [tab.tabId]: event.target.value }))
                           }
-                          className="rounded border border-zinc-300 dark:border-zinc-700 bg-zinc-100 dark:bg-zinc-900 px-2 py-1 text-xs"
+                          className="rounded border border-[var(--line)] bg-[var(--paper-2)] px-2 py-1 text-xs"
                         >
                           <option value="">{t("dashboardMoveTo", undefined, language)}</option>
                           {data.workspaces.map((workspace) => (
@@ -2049,8 +2107,8 @@ function DashboardApp() {
               ) : null}
               {onboardingStep === 4 ? (
                 <div>
-                  <h3 className="text-2xl font-bold tracking-tight">{t("onboardingDoneTitle", undefined, language)}</h3>
-                  <p className="mt-2 text-zinc-700 dark:text-zinc-300">{t("onboardingDoneDesc", undefined, language)}</p>
+                  <h3 className="font-flox text-[26px] font-semibold tracking-[-0.02em] leading-tight">{t("onboardingDoneTitle", undefined, language)}</h3>
+                  <p className="mt-2 text-[var(--ink-2)]">{t("onboardingDoneDesc", undefined, language)}</p>
                 </div>
               ) : null}
               <div className="mt-6 flex justify-end gap-2">
@@ -2058,7 +2116,7 @@ function DashboardApp() {
                   <button
                     type="button"
                     onClick={() => setOnboardingStep(3)}
-                    className="rounded border border-zinc-300 dark:border-zinc-700 px-3 py-1 text-sm"
+                    className="rounded border border-[var(--line)] px-3 py-1 text-sm"
                   >
                     {t("skipForNow", undefined, language)}
                   </button>
@@ -2077,12 +2135,12 @@ function DashboardApp() {
                         }
                       })()
                     }
-                    className="rounded bg-amber-400 px-3 py-1 text-sm font-medium text-zinc-900 hover:bg-amber-300"
+                    className="rounded-lg bg-[var(--accent)] px-3 py-1 text-sm font-medium text-white hover:opacity-90"
                   >
                     {t("onboardingNext", undefined, language)}
                   </button>
                 ) : (
-                  <button type="button" onClick={() => void completeOnboarding()} className="rounded bg-amber-400 px-3 py-1 text-sm font-medium text-zinc-900 hover:bg-amber-300">
+                  <button type="button" onClick={() => void completeOnboarding()} className="rounded-lg bg-[var(--accent)] px-3 py-1 text-sm font-medium text-white hover:opacity-90">
                     {t("onboardingStartUsing", undefined, language)}
                   </button>
                 )}
@@ -2093,46 +2151,46 @@ function DashboardApp() {
 
         {workspaceEditorOpen ? (
           <div
-            className="fixed inset-0 z-[60] flex items-center justify-center bg-zinc-900/35 dark:bg-black/55 p-4"
+            className="fixed inset-0 z-[60] flex items-center justify-center bg-[var(--ink)]/25 backdrop-blur-[2px] p-4"
             onClick={closeWorkspaceEditor}
             role="presentation"
           >
             <div
-              className="w-full max-w-md rounded-xl border border-zinc-300 dark:border-zinc-700 bg-zinc-100 dark:bg-zinc-900 p-5 shadow-xl"
+              className="w-full max-w-md rounded-xl border border-[var(--line)] bg-[var(--paper-2)] p-5 shadow-xl"
               onClick={(e) => e.stopPropagation()}
               role="dialog"
               aria-modal="true"
             >
-              <p className="text-base font-semibold text-zinc-900 dark:text-zinc-100">
+              <p className="text-base font-semibold text-[var(--ink)]">
                 {editingWorkspaceId ? t("popupEditTaskTitle", undefined, language) : t("popupCreateTaskTitle", undefined, language)}
               </p>
-              <label className="mt-3 block text-xs text-zinc-600 dark:text-zinc-400">{t("popupTaskNameLabel", undefined, language)}</label>
+              <label className="mt-3 block text-xs text-[var(--muted)]">{t("popupTaskNameLabel", undefined, language)}</label>
               <input
                 value={workspaceNameInput}
                 onChange={(e) => setWorkspaceNameInput(e.target.value)}
-                className="mt-1 w-full rounded border border-zinc-300 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-950 px-2 py-2 text-sm text-zinc-900 dark:text-zinc-100"
+                className="mt-1 w-full rounded border border-[var(--line)] bg-[var(--paper)] px-2 py-2 text-sm text-[var(--ink)]"
               />
-              <p className="mt-3 text-xs text-zinc-600 dark:text-zinc-400">{t("popupTaskColorLabel", undefined, language)}</p>
+              <p className="mt-3 text-xs text-[var(--muted)]">{t("popupTaskColorLabel", undefined, language)}</p>
               <div className="mt-1 flex flex-wrap gap-2">
                 {WORKSPACE_COLORS.map((color) => (
                   <button
                     key={color}
                     type="button"
                     onClick={() => setWorkspaceColorInput(color)}
-                    className={`h-7 w-7 rounded-full border-2 ${workspaceColorInput === color ? "border-white" : "border-zinc-300 dark:border-zinc-700"}`}
+                    className={`h-7 w-7 rounded-full border-2 ${workspaceColorInput === color ? "border-white" : "border-[var(--line)]"}`}
                     style={{ backgroundColor: color }}
                   />
                 ))}
               </div>
-              <p className="mt-3 text-xs text-zinc-600 dark:text-zinc-400">{t("popupTaskRulesLabel", undefined, language)}</p>
-              <div className="mt-1 flex flex-wrap gap-1 rounded border border-zinc-300 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-950 p-2">
+              <p className="mt-3 text-xs text-[var(--muted)]">{t("popupTaskRulesLabel", undefined, language)}</p>
+              <div className="mt-1 flex flex-wrap gap-1 rounded border border-[var(--line)] bg-[var(--paper)] p-2">
                 {workspacePatterns.map((pattern) => (
-                  <span key={pattern} className="inline-flex items-center gap-1 rounded bg-zinc-200 dark:bg-zinc-800 px-2 py-0.5 text-xs">
+                  <span key={pattern} className="inline-flex items-center gap-1 rounded bg-[var(--paper-3)] px-2 py-0.5 text-xs">
                     {pattern}
                     <button
                       type="button"
                       onClick={() => setWorkspacePatterns((current) => current.filter((item) => item !== pattern))}
-                      className="text-zinc-600 dark:text-zinc-400 hover:text-zinc-800 dark:text-zinc-200"
+                      className="text-[var(--muted)] hover:text-[var(--ink)]"
                     >
                       ×
                     </button>
@@ -2164,12 +2222,12 @@ function DashboardApp() {
                   ) : null}
                 </div>
                 <div className="flex gap-2">
-                  <button type="button" className="rounded border border-zinc-600 px-3 py-2 text-sm" onClick={closeWorkspaceEditor}>
+                  <button type="button" className="rounded-lg border border-[var(--line-strong)] px-3 py-2 text-sm text-[var(--ink)] hover:bg-[var(--paper-3)]" onClick={closeWorkspaceEditor}>
                     {t("popupCancel", undefined, language)}
                   </button>
                   <button
                     type="button"
-                    className="rounded bg-amber-400 px-3 py-2 text-sm font-medium text-zinc-900 hover:bg-amber-300"
+                    className="rounded-lg bg-[var(--accent)] px-3 py-2 text-sm font-medium text-white hover:opacity-90"
                     onClick={() => void saveWorkspaceFormDashboard()}
                   >
                     {t("popupSave", undefined, language)}
@@ -2182,38 +2240,38 @@ function DashboardApp() {
 
         {pinnedEditor ? (
           <div
-            className="fixed inset-0 z-50 flex items-center justify-center bg-zinc-900/35 dark:bg-black/55 p-4"
+            className="fixed inset-0 z-50 flex items-center justify-center bg-[var(--ink)]/25 backdrop-blur-[2px] p-4"
             onClick={() => setPinnedEditor(null)}
             role="presentation"
           >
             <div
-              className="w-full max-w-md rounded-xl border border-zinc-300 dark:border-zinc-700 bg-zinc-100 dark:bg-zinc-900 p-5 shadow-xl"
+              className="w-full max-w-md rounded-xl border border-[var(--line)] bg-[var(--paper-2)] p-5 shadow-xl"
               onClick={(e) => e.stopPropagation()}
               role="dialog"
               aria-modal="true"
             >
-              <p className="text-base font-semibold text-zinc-900 dark:text-zinc-100">
+              <p className="text-base font-semibold text-[var(--ink)]">
                 {pinnedEditor.mode === "add" ? t("pinnedAddLink", undefined, language) : t("pinnedEdit", undefined, language)}
               </p>
-              <label className="mt-3 block text-xs text-zinc-600 dark:text-zinc-400">{t("pinnedUrl", undefined, language)}</label>
+              <label className="mt-3 block text-xs text-[var(--muted)]">{t("pinnedUrl", undefined, language)}</label>
               <input
                 value={pinUrl}
                 onChange={(e) => setPinUrl(e.target.value)}
                 onBlur={() => void fetchPinPreviewDashboard()}
                 disabled={pinnedEditor.mode === "edit"}
-                className="mt-1 w-full rounded border border-zinc-300 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-950 px-2 py-2 text-sm text-zinc-900 dark:text-zinc-100 disabled:opacity-60"
+                className="mt-1 w-full rounded border border-[var(--line)] bg-[var(--paper)] px-2 py-2 text-sm text-[var(--ink)] disabled:opacity-60"
               />
-              <label className="mt-3 block text-xs text-zinc-600 dark:text-zinc-400">{t("pinnedTitle", undefined, language)}</label>
+              <label className="mt-3 block text-xs text-[var(--muted)]">{t("pinnedTitle", undefined, language)}</label>
               <input
                 value={pinTitle}
                 onChange={(e) => setPinTitle(e.target.value)}
-                className="mt-1 w-full rounded border border-zinc-300 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-950 px-2 py-2 text-sm text-zinc-900 dark:text-zinc-100"
+                className="mt-1 w-full rounded border border-[var(--line)] bg-[var(--paper)] px-2 py-2 text-sm text-[var(--ink)]"
               />
-              <label className="mt-3 block text-xs text-zinc-600 dark:text-zinc-400">{t("pinnedWorkspace", undefined, language)}</label>
+              <label className="mt-3 block text-xs text-[var(--muted)]">{t("pinnedWorkspace", undefined, language)}</label>
               <select
                 value={pinWorkspaceId}
                 onChange={(e) => setPinWorkspaceId(e.target.value)}
-                className="mt-1 w-full rounded border border-zinc-300 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-950 px-2 py-2 text-sm text-zinc-900 dark:text-zinc-100"
+                className="mt-1 w-full rounded border border-[var(--line)] bg-[var(--paper)] px-2 py-2 text-sm text-[var(--ink)]"
               >
                 <option value="">{t("pinnedNone", undefined, language)}</option>
                 {data.workspaces.map((ws) => (
@@ -2222,12 +2280,12 @@ function DashboardApp() {
                   </option>
                 ))}
               </select>
-              {pinFetchLoading ? <p className="mt-2 text-xs text-zinc-600 dark:text-zinc-500">{t("loading", undefined, language)}</p> : null}
+              {pinFetchLoading ? <p className="mt-2 text-xs text-[var(--muted)]">{t("loading", undefined, language)}</p> : null}
               <div className="mt-5 flex justify-end gap-2">
-                <button type="button" className="rounded border border-zinc-600 px-3 py-2 text-sm" onClick={() => setPinnedEditor(null)}>
+                <button type="button" className="rounded-lg border border-[var(--line-strong)] px-3 py-2 text-sm text-[var(--ink)] hover:bg-[var(--paper-3)]" onClick={() => setPinnedEditor(null)}>
                   {t("pinnedCancel", undefined, language)}
                 </button>
-                <button type="button" className="rounded bg-amber-400 px-3 py-2 text-sm font-medium text-zinc-900 hover:bg-amber-300" onClick={() => void savePinnedFormDashboard()}>
+                <button type="button" className="rounded-lg bg-[var(--accent)] px-3 py-2 text-sm font-medium text-white hover:opacity-90" onClick={() => void savePinnedFormDashboard()}>
                   {t("pinnedSave", undefined, language)}
                 </button>
               </div>
@@ -2237,31 +2295,31 @@ function DashboardApp() {
 
         {lastWorkspaceTabPrompt ? (
           <div
-            className="fixed inset-0 z-50 flex items-center justify-center bg-zinc-900/35 dark:bg-black/55 p-4"
+            className="fixed inset-0 z-50 flex items-center justify-center bg-[var(--ink)]/25 backdrop-blur-[2px] p-4"
             onClick={() => setLastWorkspaceTabPrompt(null)}
             role="presentation"
           >
             <div
-              className="w-full max-w-md rounded-xl border border-zinc-300 dark:border-zinc-700 bg-zinc-100 dark:bg-zinc-900 p-5 shadow-xl"
+              className="w-full max-w-md rounded-xl border border-[var(--line)] bg-[var(--paper-2)] p-5 shadow-xl"
               onClick={(event) => event.stopPropagation()}
               role="dialog"
               aria-modal="true"
             >
-              <p className="text-base font-semibold text-zinc-900 dark:text-zinc-100">
+              <p className="text-base font-semibold text-[var(--ink)]">
                 {t("lastWorkspaceTabTitle", [lastWorkspaceTabPrompt.workspaceLabel], language)}
               </p>
-              <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-400">{t("lastWorkspaceTabHint", undefined, language)}</p>
+              <p className="mt-2 text-sm text-[var(--muted)]">{t("lastWorkspaceTabHint", undefined, language)}</p>
               <div className="mt-5 flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:justify-end">
                 <button
                   type="button"
-                  className="rounded border border-zinc-600 px-3 py-2 text-sm text-zinc-800 dark:text-zinc-200 hover:bg-zinc-200 dark:bg-zinc-800"
+                  className="rounded-lg border border-[var(--line-strong)] px-3 py-2 text-sm text-[var(--ink)] hover:bg-[var(--paper-3)]"
                   onClick={() => setLastWorkspaceTabPrompt(null)}
                 >
                   {t("lastWorkspaceTabCancel", undefined, language)}
                 </button>
                 <button
                   type="button"
-                  className="rounded border border-zinc-600 px-3 py-2 text-sm text-zinc-800 dark:text-zinc-200 hover:bg-zinc-200 dark:bg-zinc-800"
+                  className="rounded-lg border border-[var(--line-strong)] px-3 py-2 text-sm text-[var(--ink)] hover:bg-[var(--paper-3)]"
                   onClick={() => {
                     const payload = lastWorkspaceTabPrompt;
                     setLastWorkspaceTabPrompt(null);

@@ -46,6 +46,7 @@ let contextMenuRefreshInFlight: Promise<void> | null = null;
 /** Tabs closed via Flox UI — skip post-close “last tab” system notification. */
 const floxInitiatedTabRemovals = new Set<number>();
 const lastWorkspaceNotifyById = new Map<string, { workspaceId: string }>();
+const assignPromptDomainByTabId = new Map<number, string>();
 
 function markTabsRemovedByFlox(tabIds: ReadonlyArray<number>): void {
   for (const id of tabIds) {
@@ -708,6 +709,10 @@ async function assignAndPersistTab(
   }
 
   const domain = getDomain(tab.url);
+  if (assignPromptDomainByTabId.get(tab.id) === domain) {
+    await syncBadgeFromRecords();
+    return;
+  }
   const ignored = await getIgnoredDomains();
   if (ignored.includes(domain)) {
     await syncBadgeFromRecords();
@@ -732,6 +737,7 @@ async function assignAndPersistTab(
       color: workspace.color
     }))
   });
+  assignPromptDomainByTabId.set(tab.id, domain);
   await syncBadgeFromRecords();
 }
 
@@ -1790,6 +1796,7 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
 
 chrome.tabs.onRemoved.addListener((tabId) => {
   safeRun(async () => {
+    assignPromptDomainByTabId.delete(tabId);
     if (floxInitiatedTabRemovals.has(tabId)) {
       floxInitiatedTabRemovals.delete(tabId);
       await removeTabRecord(tabId);
